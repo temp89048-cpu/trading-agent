@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-0: #08090c; --bg-1: #0e1116; --bg-2: #141822; --bg-3: #1b202c; --line: #232a38;
+  --amber: #f5a623; --amber-dim: #8a6420; --cyan: #3fd9d9; --green: #3ecf7a; --red: #ef5a5a;
+  --txt-0: #e8ecf1; --txt-1: #93a0b4; --txt-2: #5b6578;
+}
+
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background:
+    radial-gradient(1200px 600px at 15% -10%, rgba(245,166,35,0.05), transparent 60%),
+    radial-gradient(1000px 500px at 100% 0%, rgba(63,217,217,0.04), transparent 60%),
+    var(--bg-0);
+  color: var(--txt-0);
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #2c3546; }
+
+@keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+.pulse { animation: pulse-dot 1.6s ease-in-out infinite; }
+
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+.rise { animation: rise .25s ease-out; }
+
+@keyframes flash-up { 0% { background: rgba(62,207,122,0.22); } 100% { background: transparent; } }
+@keyframes flash-down { 0% { background: rgba(239,90,90,0.22); } 100% { background: transparent; } }
+.flash-up { animation: flash-up .7s ease-out; }
+.flash-down { animation: flash-down .7s ease-out; }
+
+.caret::after { content: '▍'; color: var(--amber); animation: pulse-dot 1s steps(2) infinite; }
+
+input[type=text], input[type=password], input[type=number], select, textarea {
+  background: var(--bg-1); border: 1px solid var(--line); color: var(--txt-0);
+}
+input:focus, select:focus, textarea:focus {
+  outline: none; border-color: var(--amber-dim); box-shadow: 0 0 0 3px rgba(245,166,35,0.08);
+}
+
+.tabbtn { padding: .4rem .8rem; font-size: .72rem; border-radius: .4rem; letter-spacing: .03em; cursor: pointer; transition: all .15s; }
+
+/* UI enhancement pass */
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, a:focus-visible {
+  outline: 2px solid var(--amber-dim);
+  outline-offset: 1px;
+}
+button { transition: background-color .15s ease, color .15s ease, border-color .15s ease, opacity .15s ease, transform .1s ease; }
+button:active:not(:disabled) { transform: scale(0.97); }
+
+.card-shadow { box-shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px -12px rgba(0,0,0,0.5); }
+.header-glow { box-shadow: 0 1px 0 rgba(245,166,35,0.06); }
+
+/* Sidebar reorganization pass — collapsible group hierarchy */
+.tabbtn:hover { background: var(--bg-3); color: var(--txt-0); }
+
+/* Scrollbar refinement — a touch more visible on hover, still unobtrusive at rest */
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; transition: background-color .15s; }
+
+/* Subtle lift for anything meant to read as clickable/elevated beyond a
+   plain link — used by the new collapsible group headers. */
+.hover-lift { transition: background-color .15s ease, box-shadow .15s ease; }
+.hover-lift:hover { box-shadow: inset 0 1px 0 rgba(255,255,255,0.03); }

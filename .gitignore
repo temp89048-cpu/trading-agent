@@ -1,0 +1,27 @@
+# dependencies
+/node_modules
+
+# Next.js build output
+/.next
+/out
+
+# local file-backed data stores (trades, decisions, reflections, memory,
+# debate records, strategy versions) — see lib/*Store.server.ts. Real
+# account/trade data belongs on disk locally, never in version control.
+/.data
+
+# TypeScript incremental build info
+*.tsbuildinfo
+
+# env files
+.env
+.env*.local
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
