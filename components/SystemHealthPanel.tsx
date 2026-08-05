@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useMarketData } from './MarketData';
 import { useCandles } from './Candles';
 import { useMcp } from './Mcp';
+import { useAgentRuntime } from './AgentRuntime';
 import { assessSystemHealth, type HealthSignal } from '@/lib/supervisorAgent';
 
 // System health, honestly scoped: this rolls up signals the app already
@@ -31,6 +32,7 @@ export function SystemHealthPanel() {
   const { watchlist } = useMarketData();
   const { getCandles, ensureCandles } = useCandles();
   const { servers, statusById, checkServer } = useMcp();
+  const { snapshot: agentSnapshot } = useAgentRuntime();
   const [serverHealth, setServerHealth] = useState<ServerHealth>(null);
   const [checkingServerHealth, setCheckingServerHealth] = useState(false);
 
@@ -98,7 +100,37 @@ export function SystemHealthPanel() {
   }
 
   const report = assessSystemHealth(signals);
-  const color = report.overall === 'healthy' ? 'text-green' : report.overall === 'degraded' ? 'text-amber' : 'text-red';
+
+  // --- Agent OS health signals (Phase 21) ---
+  const erroredAgents = agentSnapshot.agents.filter((a) => a.health.status === 'error');
+  const staleAgents = agentSnapshot.agents.filter((a) => {
+    if (a.descriptor.tickIntervalMs === 0) return false;
+    if (a.health.lastHeartbeat === 0) return false;
+    return Date.now() - a.health.lastHeartbeat > a.descriptor.tickIntervalMs * 3;
+  });
+
+  if (erroredAgents.length > 0) {
+    signals.push({
+      label: 'Agent OS',
+      ok: false,
+      detail: `${erroredAgents.length} agent(s) in error state: ${erroredAgents.map((a) => a.descriptor.name).join(', ')}`,
+    });
+  } else if (staleAgents.length > 0) {
+    signals.push({
+      label: 'Agent OS',
+      ok: false,
+      detail: `${staleAgents.length} agent(s) stale: ${staleAgents.map((a) => a.descriptor.name).join(', ')}`,
+    });
+  } else {
+    signals.push({
+      label: 'Agent OS',
+      ok: true,
+      detail: `${agentSnapshot.agents.length} agents registered, scheduler ${agentSnapshot.schedulerRunning ? 'active' : 'stopped'}`,
+    });
+  }
+
+  const reportFinal = assessSystemHealth(signals);
+  const color = reportFinal.overall === 'healthy' ? 'text-green' : reportFinal.overall === 'degraded' ? 'text-amber' : 'text-red';
 
   if (signals.length === 0) {
     return <p className="text-[11px] text-txt2">No watchlist symbols or MCP servers to check yet.</p>;
@@ -107,7 +139,7 @@ export function SystemHealthPanel() {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
-        <p className={`text-[11px] font-mono font-bold uppercase ${color}`}>{report.overall}</p>
+        <p className={`text-[11px] font-mono font-bold uppercase ${color}`}>{reportFinal.overall}</p>
         <button
           onClick={retryAll}
           disabled={checkingServerHealth}

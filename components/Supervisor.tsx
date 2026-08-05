@@ -10,6 +10,7 @@ import { useDebate } from './Debate';
 import { useMultiExchange } from './MultiExchange';
 import { useTradingControls } from './TradingControls';
 import { useExchangeAccounts } from './ExchangeAccounts';
+import { useMissionPlanner } from './MissionPlanner';
 import { buildStrategyContext } from '@/lib/strategyContext';
 import { runStrategyEnsemble } from '@/lib/strategyEnsemble';
 import { computeCorrelationMatrix } from '@/lib/portfolioIntelligence';
@@ -97,6 +98,7 @@ export function SupervisorProvider({ children }: { children: React.ReactNode }) 
   const { getSnapshot } = useMultiExchange();
   const { paused, manualApprovalThresholdUsd, riskConfig, addPendingApproval } = useTradingControls();
   const { realTradingMode, preferredExchange, isConnected: isExchangeConnected, placeRealOrder, getRealOrderStatus } = useExchangeAccounts();
+  const { getMissionAlignment } = useMissionPlanner();
 
   function getStrategyContextFor(item: WatchItem) {
     const primary = getCandles(item.symbol, '1h');
@@ -310,6 +312,8 @@ export function SupervisorProvider({ children }: { children: React.ReactNode }) 
       ensembleConsensus,
       debateRecommendation,
       riskConfig,
+      // Phase 22: Mission alignment
+      missionAlignment: getMissionAlignment({ symbol: params.symbol, side: params.side, qty: params.qty, price: params.price, leverage: params.requestedLeverage }),
     };
 
     const decision = reviewTradeRequest(request);

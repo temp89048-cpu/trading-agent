@@ -4,6 +4,7 @@ import { validateTrade, computeStopLossTakeProfit, type RiskValidation, type Cor
 import type { NewsItem } from './sentimentAgent';
 import { runTradeSimulation } from './simulation';
 import { buildExplainableRecommendation, sourced, unavailable, type ExplainableRecommendation, type ReasonBullet } from './explainableOutput';
+import type { MissionAlignmentResult } from './missionPlanner';
 
 // ---------------------------------------------------------------------
 // Supervisor Agent (Level 19) — the orchestration layer.
@@ -94,6 +95,9 @@ export type SupervisorRequest = {
   // Human-in-the-loop configurable risk limits (Production Readiness
   // Review #17) — merged over DEFAULT_RISK_CONFIG inside validateTrade.
   riskConfig?: Partial<RiskConfig>;
+  // Phase 22: Mission Planner alignment result — optional, only present
+  // when an active mission exists and the caller computed alignment.
+  missionAlignment?: MissionAlignmentResult | null;
 };
 
 export type SupervisorDecision = {
@@ -101,6 +105,7 @@ export type SupervisorDecision = {
   urgency: SupervisorUrgency;
   reasons: string[]; // rejection reasons — empty when approved
   conflictNotes: string[]; // disagreements surfaced regardless of approval
+  cautionNotes: string[]; // informational notes (mission alignment, etc.)
   explainable: ExplainableRecommendation | null;
   riskValidation: RiskValidation | null;
 };
@@ -184,6 +189,7 @@ export function reviewTradeRequest(request: SupervisorRequest): SupervisorDecisi
       urgency: classifyUrgency(request, true),
       reasons: [],
       conflictNotes,
+      cautionNotes: [],
       explainable,
       riskValidation: null,
     };
@@ -196,6 +202,7 @@ export function reviewTradeRequest(request: SupervisorRequest): SupervisorDecisi
       urgency: 'critical',
       reasons: [blockedByDebate],
       conflictNotes,
+      cautionNotes: [],
       explainable,
       riskValidation: null,
     };
@@ -207,6 +214,7 @@ export function reviewTradeRequest(request: SupervisorRequest): SupervisorDecisi
       urgency: 'critical',
       reasons: ['No strategy context available for this symbol yet (insufficient candle history) — the Supervisor cannot validate risk without it, so this is rejected rather than approved blind.'],
       conflictNotes,
+      cautionNotes: [],
       explainable: null,
       riskValidation: null,
     };
@@ -229,11 +237,23 @@ export function reviewTradeRequest(request: SupervisorRequest): SupervisorDecisi
   const conflictBullets: ReasonBullet[] = conflictNotes.map((text) => ({ text, source: 'Supervisor — cross-agent conflict check (Tier 2, non-blocking)' }));
   const explainable = buildBuyExplainable(request, riskValidation, conflictBullets);
 
+  // Phase 22: Mission alignment — add caution notes, never hard-reject
+  const cautionNotes: string[] = [];
+  if (request.missionAlignment) {
+    const ma = request.missionAlignment;
+    if (ma.alignment === 'misaligned') {
+      cautionNotes.push(`Mission misalignment: ${ma.reasons.join('; ')}`);
+    } else if (ma.alignment === 'aligned') {
+      cautionNotes.push(`Mission aligned: ${ma.reasons.join('; ')}`);
+    }
+  }
+
   return {
     approved: riskValidation.approved,
     urgency: classifyUrgency(request, riskValidation.approved),
     reasons: riskValidation.rejectionReasons,
     conflictNotes,
+    cautionNotes,
     explainable,
     riskValidation,
   };

@@ -28,6 +28,8 @@ import { DebatePanel } from './DebatePanel';
 import { AutonomousResearchPanel } from './AutonomousResearchPanel';
 import { TradingControlsPanel } from './TradingControlsPanel';
 import { ExchangeConnectionsPanel } from './ExchangeConnectionsPanel';
+import { AgentOSPanel } from './AgentOSPanel';
+import { MissionPlannerPanel } from './MissionPlannerPanel';
 import { useMarketData } from './MarketData';
 import { useMcp } from './Mcp';
 import { loadLS, saveLS, LS_KEYS } from '@/lib/storage';
@@ -159,7 +161,10 @@ export function TradingSidebar({ onClose }: { onClose?: () => void }) {
           </SectionBlock>
         </CollapsibleGroup>
 
-        <CollapsibleGroup id="strategy" title="Strategy & AI" icon="terminal" count={6}>
+        <CollapsibleGroup id="strategy" title="Strategy & AI" icon="terminal" count={7}>
+          <SectionBlock title="Mission Planner" icon="cpu">
+            <MissionPlannerPanel />
+          </SectionBlock>
           <SectionBlock title="Strategy Ensemble" icon="trend-up">
             <StrategyEnsemblePanel />
           </SectionBlock>
@@ -219,6 +224,12 @@ export function TradingSidebar({ onClose }: { onClose?: () => void }) {
           </SectionBlock>
           <SectionBlock title="System Health" icon="shield">
             <SystemHealthPanel />
+          </SectionBlock>
+        </CollapsibleGroup>
+
+        <CollapsibleGroup id="agent-os" title="Agent OS" icon="cpu" count={27}>
+          <SectionBlock title="Multi-Agent Runtime" icon="cpu">
+            <AgentOSPanel />
           </SectionBlock>
         </CollapsibleGroup>
 

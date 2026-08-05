@@ -17,6 +17,8 @@ import { SupervisorProvider } from '@/components/Supervisor';
 import { AutonomousResearchProvider } from '@/components/AutonomousResearch';
 import { TradingControlsProvider } from '@/components/TradingControls';
 import { ExchangeAccountsProvider } from '@/components/ExchangeAccounts';
+import { AgentRuntimeProvider } from '@/components/AgentRuntime';
+import { MissionPlannerProvider } from '@/components/MissionPlanner';
 
 export const metadata: Metadata = {
   title: 'QUANT// Terminal — AI Trading Workstation',
@@ -34,6 +36,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className="font-sans">
+        <AgentRuntimeProvider>
         <MarketDataProvider>
           <PortfolioProvider>
             <McpProvider>
@@ -46,6 +49,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                           <DebateProvider>
                             <TradingControlsProvider>
                               <ExchangeAccountsProvider>
+                                <MissionPlannerProvider>
                                 <SupervisorProvider>
                                   <AgentProvider>
                                     <MemoryProvider>
@@ -55,6 +59,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                                     </MemoryProvider>
                                   </AgentProvider>
                                 </SupervisorProvider>
+                                </MissionPlannerProvider>
                               </ExchangeAccountsProvider>
                             </TradingControlsProvider>
                           </DebateProvider>
@@ -67,6 +72,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </McpProvider>
           </PortfolioProvider>
         </MarketDataProvider>
+        </AgentRuntimeProvider>
       </body>
     </html>
   );

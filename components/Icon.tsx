@@ -1,7 +1,7 @@
 type IconName =
   | 'plus' | 'search' | 'settings' | 'trash' | 'send' | 'stop' | 'copy' | 'plug' | 'x'
-  | 'chevron-down' | 'trend-up' | 'trend-down' | 'terminal' | 'wallet' | 'shield' | 'check'
-  | 'refresh' | 'menu' | 'edit' | 'save' | 'alert';
+  | 'chevron-down' | 'chevron-up' | 'trend-up' | 'trend-down' | 'terminal' | 'wallet' | 'shield' | 'check'
+  | 'refresh' | 'refresh-cw' | 'menu' | 'edit' | 'save' | 'alert' | 'pause' | 'play' | 'cpu';
 
 export function Icon({ name, size = 16, className = '' }: { name: IconName; size?: number; className?: string }) {
   const c = {
@@ -19,6 +19,7 @@ export function Icon({ name, size = 16, className = '' }: { name: IconName; size
     case 'plug': return <svg {...c}><path d="M12 22v-5M9 8V2M15 8V2M6 8h12a2 2 0 012 2v2a6 6 0 01-6 6H10a6 6 0 01-6-6v-2a2 2 0 012-2z" /></svg>;
     case 'x': return <svg {...c}><path d="M18 6L6 18M6 6l12 12" /></svg>;
     case 'chevron-down': return <svg {...c}><path d="M6 9l6 6 6-6" /></svg>;
+    case 'chevron-up': return <svg {...c}><path d="M18 15l-6-6-6 6" /></svg>;
     case 'trend-up': return <svg {...c}><path d="M23 6l-9.5 9.5-5-5L1 18" /><path d="M17 6h6v6" /></svg>;
     case 'trend-down': return <svg {...c}><path d="M23 18l-9.5-9.5-5 5L1 6" /><path d="M17 18h6v-6" /></svg>;
     case 'terminal': return <svg {...c}><polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" /></svg>;
@@ -26,6 +27,10 @@ export function Icon({ name, size = 16, className = '' }: { name: IconName; size
     case 'shield': return <svg {...c}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>;
     case 'check': return <svg {...c}><polyline points="20 6 9 17 4 12" /></svg>;
     case 'refresh': return <svg {...c}><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" /></svg>;
+    case 'refresh-cw': return <svg {...c}><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" /></svg>;
+    case 'pause': return <svg {...c}><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>;
+    case 'play': return <svg {...c}><polygon points="5 3 19 12 5 21 5 3" /></svg>;
+    case 'cpu': return <svg {...c}><rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" /><line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" /><line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" /><line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" /><line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" /></svg>;
     case 'menu': return <svg {...c}><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></svg>;
     case 'edit': return <svg {...c}><path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>;
     case 'save': return <svg {...c}><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></svg>;
