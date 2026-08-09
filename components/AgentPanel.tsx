@@ -5,24 +5,8 @@ import { Icon } from './Icon';
 import { useAgent } from './Agent';
 import { useMarketData } from './MarketData';
 import { describeCondition } from '@/lib/plannerAgent';
+import { computeLiveUnrealizedPnl } from '@/lib/agentEngine';
 import type { AgentTask } from '@/lib/types';
-
-// Unrealized P&L for the currently-open leg of a take-profit/
-// conditional-watch task, marked-to-market against the live tick price —
-// same formula agentEngine.ts's checkTpSlClose uses to compute the
-// REALIZED pnl once TP/SL actually fires, just evaluated against the
-// live price instead of waiting for a close. pctMove mirrors the same
-// plain price-move percent tpPercent/slPercent are already defined in
-// (not a leveraged ROI%), so it's directly comparable to "watching for
-// {tpPercent}% move" shown right next to it.
-function computeLivePnl(task: AgentTask, livePrice: number): { pnl: number; pctMove: number } {
-  const entry = task.currentEntryPrice!;
-  const qty = task.currentQty!;
-  const sign = task.side === 'buy' ? 1 : -1;
-  const pnl = (livePrice - entry) * qty * sign;
-  const pctMove = sign * ((livePrice - entry) / entry) * 100;
-  return { pnl, pctMove };
-}
 
 // Compact one-line summary of "TP/SL" for the header row — accounts for
 // ATR-based stops (fixed tpPercent/slPercent don't apply then) so it
@@ -42,6 +26,7 @@ function describeAdvancedConfig(task: AgentTask): string[] {
   }
   if (task.breakEvenArmed) badges.push('breakeven armed');
   if (task.requireSignalConfirmation) badges.push('signal-gated');
+  if (task.exitOnThesisInvalidation) badges.push('thesis-monitored');
   return badges;
 }
 
@@ -114,7 +99,7 @@ export function AgentPanel() {
             )}
             {t.status === 'running' && t.currentEntryPrice !== undefined && t.currentQty !== undefined && (t.mode === 'take-profit' || t.mode === 'conditional-watch') && (() => {
               const livePrice = ticks[t.symbol]?.price;
-              const live = livePrice !== undefined ? computeLivePnl(t, livePrice) : null;
+              const live = livePrice !== undefined ? computeLiveUnrealizedPnl(t, livePrice) : null;
               return (
                 <div className="flex flex-col gap-0.5">
                   <p className="text-[9.5px] text-txt2">

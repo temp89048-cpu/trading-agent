@@ -12,6 +12,8 @@ import { EventDetectionProvider } from '@/components/EventDetection';
 import { MarketIntelProvider } from '@/components/MarketIntel';
 import { MemoryProvider } from '@/components/Memory';
 import { ReflectionProvider } from '@/components/Reflection';
+import { HypothesisProvider } from '@/components/Hypothesis';
+import { AutonomousTraderProvider } from '@/components/AutonomousTrader';
 import { DebateProvider } from '@/components/Debate';
 import { SupervisorProvider } from '@/components/Supervisor';
 import { AutonomousResearchProvider } from '@/components/AutonomousResearch';
@@ -52,11 +54,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                                 <MissionPlannerProvider>
                                 <SupervisorProvider>
                                   <AgentProvider>
-                                    <MemoryProvider>
-                                      <AppStateProvider>
-                                        <ReflectionProvider>{children}</ReflectionProvider>
-                                      </AppStateProvider>
-                                    </MemoryProvider>
+                                    {/* Below AgentProvider on purpose — the autonomous
+                                        loop calls startAgent(), and React context only
+                                        flows downward. */}
+                                    <AutonomousTraderProvider>
+                                      <MemoryProvider>
+                                        <AppStateProvider>
+                                          <ReflectionProvider>
+                                            <HypothesisProvider>{children}</HypothesisProvider>
+                                          </ReflectionProvider>
+                                        </AppStateProvider>
+                                      </MemoryProvider>
+                                    </AutonomousTraderProvider>
                                   </AgentProvider>
                                 </SupervisorProvider>
                                 </MissionPlannerProvider>

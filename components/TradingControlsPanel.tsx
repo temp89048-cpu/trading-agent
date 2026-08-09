@@ -56,7 +56,7 @@ function logManualDecision(pending: PendingApproval, outcome: 'manually-approved
 }
 
 export function TradingControlsPanel() {
-  const { paused, setPaused, manualApprovalThresholdUsd, setManualApprovalThresholdUsd, riskConfig, riskConfigOverrides, setRiskConfigOverride, resetRiskConfig, pendingApprovals, removePendingApproval } = useTradingControls();
+  const { paused, setPaused, manualApprovalThresholdUsd, setManualApprovalThresholdUsd, realStartingCapitalUsd, setRealStartingCapitalUsd, riskConfig, riskConfigOverrides, setRiskConfigOverride, resetRiskConfig, pendingApprovals, removePendingApproval } = useTradingControls();
   const { tasks, cancelAgent } = useAgent();
   const { executeApprovedRequest } = useSupervisor();
   const [showRiskConfig, setShowRiskConfig] = useState(false);
@@ -139,6 +139,32 @@ export function TradingControlsPanel() {
         <p className="text-[9.5px] text-txt2">
           A BUY notional above this queues for your explicit Approve/Reject instead of auto-executing, even after passing every
           risk check. Leave blank for no threshold.
+        </p>
+      </div>
+
+      <div className="border-t border-line pt-2 flex flex-col gap-1.5">
+        <label className="text-[10px] font-mono text-txt2">Real account starting capital ($)</label>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={0}
+            step={0.01}
+            value={realStartingCapitalUsd ?? ''}
+            placeholder="not set — real-tab risk checks read 'unavailable'"
+            onChange={(e) => setRealStartingCapitalUsd(e.target.value === '' ? null : Math.max(0, Number(e.target.value)))}
+            className="flex-1 bg-bg2 border border-line rounded-md px-2 py-1 text-[11px] font-mono text-txt0"
+          />
+          {realStartingCapitalUsd !== null && (
+            <button onClick={() => setRealStartingCapitalUsd(null)} className="text-[10px] font-mono text-txt2 hover:text-txt0">
+              Clear
+            </button>
+          )}
+        </div>
+        <p className="text-[9.5px] text-txt2">
+          The real tab has no exchange-tracked cash balance, so per-trade risk %, daily-loss, drawdown, and portfolio-exposure
+          checks have always silently skipped ('unavailable') for real trades. Declaring your actual starting capital here lets
+          those checks run for real — current equity is estimated as this number plus/minus realized P&amp;L from the real trade
+          log. Leave blank to keep today's behavior exactly as-is.
         </p>
       </div>
 

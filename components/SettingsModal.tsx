@@ -4,12 +4,24 @@ import { useState } from 'react';
 import { Icon } from './Icon';
 import { PROVIDERS, THEMES } from '@/lib/constants';
 import { useAppState } from './AppState';
+import { useTradingControls } from './TradingControls';
 import type { ThemeId } from '@/lib/types';
 
 export function SettingsModal({ onClose }: { onClose: () => void }) {
   const { config, setConfig, activeProvider, resolvedApiKey } = useAppState();
+  const {
+    secondOpinionProvider,
+    secondOpinionModel,
+    secondOpinionApiKeys,
+    secondOpinionResolvedApiKey,
+    secondOpinionBaseUrlOverride,
+    secondOpinionProviderObj,
+    setSecondOpinionConfig,
+  } = useTradingControls();
   const [draftKey, setDraftKey] = useState(resolvedApiKey);
   const [draftBaseUrl, setDraftBaseUrl] = useState(config.baseUrlOverride);
+  const [draftSecondKey, setDraftSecondKey] = useState(secondOpinionResolvedApiKey);
+  const [draftSecondBaseUrl, setDraftSecondBaseUrl] = useState(secondOpinionBaseUrlOverride);
 
   function saveAndClose() {
     setConfig((c) => ({
@@ -17,6 +29,10 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       apiKeys: { ...c.apiKeys, [c.provider]: draftKey },
       baseUrlOverride: draftBaseUrl,
     }));
+    setSecondOpinionConfig({
+      secondOpinionApiKeys: secondOpinionProvider ? { ...secondOpinionApiKeys, [secondOpinionProvider]: draftSecondKey } : secondOpinionApiKeys,
+      secondOpinionBaseUrlOverride: draftSecondBaseUrl,
+    });
     onClose();
   }
 
@@ -139,6 +155,83 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
               ))}
             </div>
           </Field>
+
+          <div className="border-t border-line pt-3 flex flex-col gap-3">
+            <p className="text-[10px] font-mono uppercase tracking-wider text-amber">
+              Second Opinion Model (optional)
+            </p>
+            <p className="text-[10px] text-txt2">
+              A genuinely separate model the Supervisor can ask for an independent read when its own internal
+              signals are low-confidence or conflicting — never blocking, never overriding Risk, always a
+              caution note. Leave as "Disabled" to skip this entirely (nothing changes about how trades are
+              decided today).
+            </p>
+
+            <Field label="Provider">
+              <select
+                value={secondOpinionProvider}
+                onChange={(e) => setSecondOpinionConfig({ secondOpinionProvider: e.target.value, secondOpinionModel: '' })}
+                className="w-full rounded-md px-3 py-2 text-sm font-mono"
+              >
+                <option value="">Disabled — no second opinion</option>
+                {PROVIDERS.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            {secondOpinionProviderObj && (
+              <>
+                {secondOpinionProviderObj.needsKey && (
+                  <Field label="API Key" hint="Stored the same way your main provider's key already is — only sent to this provider's own API.">
+                    <input
+                      type="password"
+                      value={draftSecondKey}
+                      onChange={(e) => setDraftSecondKey(e.target.value)}
+                      placeholder={`${secondOpinionProviderObj.name} API key`}
+                      className="w-full rounded-md px-3 py-2 text-sm font-mono"
+                    />
+                  </Field>
+                )}
+
+                <Field label="Base URL" hint="Leave blank to use the provider default.">
+                  <input
+                    type="text"
+                    value={draftSecondBaseUrl}
+                    onChange={(e) => setDraftSecondBaseUrl(e.target.value)}
+                    placeholder={secondOpinionProviderObj.baseUrl || 'https://…'}
+                    className="w-full rounded-md px-3 py-2 text-sm font-mono"
+                  />
+                </Field>
+
+                <Field label="Model">
+                  {secondOpinionProviderObj.models.length > 0 ? (
+                    <select
+                      value={secondOpinionModel || secondOpinionProviderObj.models[0]}
+                      onChange={(e) => setSecondOpinionConfig({ secondOpinionModel: e.target.value })}
+                      className="w-full rounded-md px-3 py-2 text-sm font-mono"
+                    >
+                      {secondOpinionProviderObj.models.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={secondOpinionModel}
+                      onChange={(e) => setSecondOpinionConfig({ secondOpinionModel: e.target.value })}
+                      placeholder="model name"
+                      className="w-full rounded-md px-3 py-2 text-sm font-mono"
+                    />
+                  )}
+                </Field>
+              </>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-line">

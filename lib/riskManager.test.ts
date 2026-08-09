@@ -11,6 +11,9 @@ import {
   computeStopLossTakeProfit,
   DEFAULT_RISK_CONFIG,
   buildRealizedEquityCurve,
+  validateTrade,
+  ABSOLUTE_MAX_LEVERAGE,
+  ABSOLUTE_MAX_LEVERAGE_PAPER,
 } from './riskManager';
 import type { StrategyContext } from './strategyContext';
 import type { TradeLogEntry } from './types';
@@ -138,9 +141,82 @@ describe('checkLeverage', () => {
     expect(checkLeverage(100, 90, 20).status).toBe('reject');
   });
 
-  it('a smaller safety buffer override can permit higher leverage on the same stop', () => {
-    const result = checkLeverage(100, 95, 5, 1.0); // 5% stop, 1x safety buffer instead of the 1.5x default
-    expect(result.status).toBe('pass');
+  // This test previously asserted the OPPOSITE — that lowering the
+  // operator-configurable safety buffer to 1.0 let 5x leverage through.
+  // That was exactly the loophole the hard ceiling now closes: the
+  // engineering spec (Section 22.3) requires a leverage ceiling that no
+  // agent or config override can raise, and the buffer is
+  // operator-tunable via RiskConfig. The buffer can still tighten
+  // leverage below the ceiling; it can no longer unlock anything above
+  // it.
+  it('a smaller safety buffer override can NOT unlock leverage above the hard ceiling', () => {
+    // 5% stop, buffer lowered to 1x — would have passed pre-ceiling.
+    const result = checkLeverage(100, 95, 5, 1.0, 'real');
+    expect(result.status).toBe('reject');
+    expect(result.detail).toContain('hard');
+  });
+
+  it('permits leverage at the hard ceiling when the stop distance genuinely supports it', () => {
+    // 5% stop at ABSOLUTE_MAX_LEVERAGE: 100/(5*1.5) = ~13x safe, so 3x is comfortably inside.
+    expect(checkLeverage(100, 95, ABSOLUTE_MAX_LEVERAGE, undefined, 'real').status).toBe('pass');
+  });
+
+  it('rejects anything above the hard ceiling regardless of how tight the stop is', () => {
+    // A 0.1% stop computes an enormous "safe" leverage, but the ceiling still governs.
+    expect(checkLeverage(100, 99.9, ABSOLUTE_MAX_LEVERAGE + 1, undefined, 'real').status).toBe('reject');
+    expect(checkLeverage(100, 99.9, 50, undefined, 'real').status).toBe('reject');
+  });
+
+  it('defaults to the strict real-money ceiling when no tab is passed', () => {
+    // A forgetful caller must get the SAFE behavior, not the lax one.
+    expect(checkLeverage(100, 99.9, ABSOLUTE_MAX_LEVERAGE + 1).status).toBe('reject');
+  });
+
+  it('allows a higher (but still hard) ceiling on the paper tab for testing', () => {
+    // Paper is where higher-leverage behavior should be testable — the
+    // spec's real-capital rationale does not apply there.
+    expect(checkLeverage(100, 99.9, ABSOLUTE_MAX_LEVERAGE + 1, undefined, 'paper').status).toBe('pass');
+    expect(checkLeverage(100, 99.9, ABSOLUTE_MAX_LEVERAGE_PAPER, undefined, 'paper').status).toBe('pass');
+    // ...but paper is still capped, not unlimited.
+    expect(checkLeverage(100, 99.9, ABSOLUTE_MAX_LEVERAGE_PAPER + 1, undefined, 'paper').status).toBe('reject');
+    expect(checkLeverage(100, 99.9, 100, undefined, 'paper').status).toBe('reject');
+  });
+});
+
+describe('validateTrade — mandatory stop-loss', () => {
+  // Spec Section 22.3: "a mandatory stop-loss or equivalent hard exit on
+  // every position." With no ATR there is no computable stop, and the
+  // trade must be rejected rather than opened unprotected.
+  const baseParams = {
+    side: 'buy' as const,
+    requestedQty: 1,
+    equityUsd: 10000,
+    tradeLog: [],
+    tab: 'paper' as const,
+  };
+
+  it('rejects a trade when no stop-loss can be computed (no ATR)', () => {
+    const ctx = fakeCtx({ atrValue: null });
+    const result = validateTrade({ ...baseParams, ctx });
+    expect(result.approved).toBe(false);
+    expect(result.stopLossTakeProfit).toBeNull();
+    expect(result.rejectionReasons.some((r) => r.includes('hard exit'))).toBe(true);
+  });
+
+  it('reports the missing-stop reason once, not once per dependent check', () => {
+    const ctx = fakeCtx({ atrValue: null });
+    const result = validateTrade({ ...baseParams, ctx });
+    const stopReasons = result.rejectionReasons.filter((r) => r.includes('hard exit'));
+    expect(stopReasons).toHaveLength(1);
+  });
+
+  it('still evaluates normally when a stop IS computable', () => {
+    const ctx = fakeCtx({ atrValue: 2 });
+    const result = validateTrade({ ...baseParams, ctx });
+    expect(result.stopLossTakeProfit).not.toBeNull();
+    // Whether it's approved depends on the other checks — the point here
+    // is only that the mandatory-stop gate itself isn't firing.
+    expect(result.rejectionReasons.some((r) => r.includes('hard exit'))).toBe(false);
   });
 });
 

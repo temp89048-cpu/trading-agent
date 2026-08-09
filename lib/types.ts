@@ -110,6 +110,16 @@ export type AgentTask = {
   requireSignalConfirmation?: boolean;
   minEnsembleConfidencePct?: number; // default 55 if requireSignalConfirmation is true and unset
   minDebateConfidencePct?: number; // only enforced when a Debate result actually exists for the symbol
+
+  // Continuous monitoring (spec Section 14: "Is my prediction still
+  // valid? Should I exit?"). When set, an OPEN leg is closed early if the
+  // Strategy Ensemble has flipped decisively against task.side — the
+  // same aggregate signal used to justify entering. Computed by the
+  // caller (components/Agent.tsx), since agentTick stays pure. Unset =
+  // exactly the pre-existing behavior: only TP/SL/trailing/scale-out can
+  // close a leg.
+  exitOnThesisInvalidation?: boolean;
+  thesisExitConfidencePct?: number; // default DEFAULT_THESIS_EXIT_CONFIDENCE_PCT (70)
 };
 
 export type AgentEventKind = 'opened' | 'closed' | 'completed' | 'cancelled' | 'error' | 'staged';

@@ -9,8 +9,15 @@ function timeAgo(ts: number): string {
   return `${Math.round(mins / 60)}h ago`;
 }
 
+const ACTION_LABELS: Record<string, string> = {
+  'create-hypothesis': 'worth turning into a testable hypothesis',
+  'run-backtest': 'worth backtesting',
+  'ask-second-opinion': 'worth a second-opinion model',
+  'reduce-exposure': 'consider reducing exposure',
+};
+
 export function AutonomousResearchPanel() {
-  const { latestDigest, runNow } = useAutonomousResearch();
+  const { latestDigest, latestCuriosity, runNow } = useAutonomousResearch();
 
   return (
     <div className="flex flex-col gap-3">
@@ -110,9 +117,35 @@ export function AutonomousResearchPanel() {
         </div>
       )}
 
+      {latestCuriosity && (
+        <div className="border-t border-line pt-2">
+          <p className="font-mono text-[10px] uppercase tracking-wider text-amber mb-1">Curiosity Engine — self-review</p>
+          <div className="flex flex-col gap-1.5">
+            {latestCuriosity.findings.map((f, i) => (
+              <div key={i} className="flex flex-col gap-0.5">
+                <p className="text-[9.5px] font-mono text-txt1">{f.question}</p>
+                <p className="text-[9.5px] text-txt0">
+                  {f.answer ?? <span className="text-txt2 italic">Not answerable from available data yet.</span>}
+                </p>
+                {f.evidence.slice(0, 3).map((e, j) => (
+                  <p key={j} className="text-[8.5px] font-mono text-txt2 pl-2">
+                    · {e}
+                  </p>
+                ))}
+                {f.suggestedAction !== 'none' && (
+                  <p className="text-[9px] font-mono text-amber pl-2">→ {ACTION_LABELS[f.suggestedAction] ?? f.suggestedAction}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <p className="text-[9.5px] text-txt2">
         Runs automatically every 15 min while this app is open (client-side timer, not a true always-on server cron — no user prompt triggers it).
-        Watchlist-scoped, not a global market scanner. Also injected into chat context so the assistant can reference it proactively.
+        Watchlist-scoped, not a global market scanner. Also injected into chat context so the assistant can reference it proactively. Every
+        Curiosity answer above is derived only from the real trade log and computed signals — a question with no real data behind it is shown as
+        unanswerable rather than filled in.
       </p>
     </div>
   );

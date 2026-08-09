@@ -42,6 +42,9 @@ import { buildMarketIntelContext } from '@/lib/sentimentAgent';
 import { computeMtfSnapshot } from '@/lib/multiTimeframe';
 import { buildStrategyEnsembleContext } from '@/lib/strategyEnsemble';
 import { buildAutonomousResearchContext } from '@/lib/autonomousResearch';
+import { buildCuriosityContext } from '@/lib/curiosityEngine';
+import { buildKnowledgeGraph, buildKnowledgeGraphContext, type GraphReflectionInput, type GraphHypothesisInput } from '@/lib/knowledgeGraph';
+import { buildResearchQueue, buildResearchQueueContext } from '@/lib/researchQueue';
 import { useAutonomousResearch } from './AutonomousResearch';
 import { captureContextSnapshot } from '@/lib/reflectionAgent';
 import type { Config, Conversation, Message, WatchItem, TradeTab } from '@/lib/types';
@@ -100,7 +103,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const { getAllEvents } = useEventDetection();
   const { getRiskPreference } = useMemory();
   const { getLatestDebate } = useDebate();
-  const { latestDigest } = useAutonomousResearch();
+  const { latestDigest, latestCuriosity } = useAutonomousResearch();
 
   function buildAllDebateContext(): string {
     const withDebates = watchlist
@@ -176,6 +179,13 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [lastError, setLastError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [reflectionLessons, setReflectionLessons] = useState<ReflectionLessonInput[]>([]);
+  // Knowledge Graph inputs. Same reason these are fetched here rather
+  // than read from a provider: both Reflection and Hypothesis providers
+  // sit BELOW AppStateProvider, so their context isn't reachable from
+  // here. The graph itself is derived (never persisted) — see
+  // lib/knowledgeGraph.ts's header for why.
+  const [graphReflections, setGraphReflections] = useState<GraphReflectionInput[]>([]);
+  const [graphHypotheses, setGraphHypotheses] = useState<GraphHypothesisInput[]>([]);
   const abortRef = useRef<AbortController | null>(null);
 
   // Fetched directly (not via useReflection()) — ReflectionProvider sits
@@ -191,15 +201,29 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         const res = await fetch('/api/reflections');
         const json = await res.json();
         if (Array.isArray(json.reflections)) {
-          setReflectionLessons(
-            json.reflections.map((r: { tradeId: string; sections?: { lesson?: string | null } | null }) => ({
-              tradeId: r.tradeId,
-              lesson: r.sections?.lesson ?? null,
+          type RawReflection = { tradeId: string; symbol?: string; sections?: { lesson?: string | null } | null };
+          const raw = json.reflections as RawReflection[];
+          setReflectionLessons(raw.map((r) => ({ tradeId: r.tradeId, lesson: r.sections?.lesson ?? null })));
+          setGraphReflections(raw.map((r) => ({ tradeId: r.tradeId, symbol: r.symbol ?? '', lesson: r.sections?.lesson ?? null })));
+        }
+      } catch {
+        // Best-effort only — memory context still works without lessons folded in.
+      }
+      try {
+        const res = await fetch('/api/hypotheses');
+        const json = await res.json();
+        if (Array.isArray(json.hypotheses)) {
+          setGraphHypotheses(
+            (json.hypotheses as { id: string; tradeId: string; claim: string; status: string }[]).map((h) => ({
+              id: h.id,
+              tradeId: h.tradeId,
+              claim: h.claim,
+              status: h.status,
             })),
           );
         }
       } catch {
-        // Best-effort only — memory context still works without lessons folded in.
+        // Best-effort — the graph still builds without the hypothesis layer.
       }
     })();
   }, [tradeLog.length]);
@@ -576,6 +600,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       { role: 'system', content: buildOrderFlowContext(watchlist, getOrderFlow) },
       { role: 'system', content: buildStrategyEnsembleContext(watchlist, getStrategyContextFor, (symbol) => getSnapshot(symbol) ?? null) },
       { role: 'system', content: buildAutonomousResearchContext(latestDigest) },
+      { role: 'system', content: buildCuriosityContext(latestCuriosity, watchlist) },
       { role: 'system', content: buildRiskContext(watchlist, getStrategyContextFor, (tradeIntentTab ?? 'paper') as TradeTab, (tradeIntentTab === 'real') ? null : paperEquityUsd(), tradeLog, (tradeIntentTab === 'real') ? null : paperExistingExposureUsd(), getNews(), getWatchlistCorrelationMatrix(), paperPositionsForCorrelation()) },
       { role: 'system', content: buildPortfolioIntelligenceContext(watchlist, getWatchlistCorrelationMatrix(), paperPositionsForCorrelation(), paperEquityUsd(), getWatchlistPriceHistories()) },
       { role: 'system', content: buildMultiExchangeContext(getAllSnapshots(), watchlist) },
@@ -583,6 +608,25 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       { role: 'system', content: buildEventDetectionContext(getAllEvents(), watchlist) },
       { role: 'system', content: buildMarketIntelContext(watchlist, getNews(), getFearGreed(), getDerivatives, (item) => computeMtfSnapshot(item, getCandles), aggregatorNote) },
       { role: 'system', content: buildMemoryContext(tradeLog, getRiskPreference(), reflectionLessons) },
+      {
+        role: 'system',
+        content: buildKnowledgeGraphContext(
+          buildKnowledgeGraph({ tradeLog, reflections: graphReflections, hypotheses: graphHypotheses }),
+        ),
+      },
+      {
+        role: 'system',
+        content: buildResearchQueueContext(
+          buildResearchQueue({
+            tradeLog,
+            reflectedTradeIds: new Set(graphReflections.map((r) => r.tradeId)),
+            untestedHypotheses: graphHypotheses
+              .filter((h) => h.status === 'proposed')
+              .map((h) => ({ id: h.id, claim: h.claim, symbol: '' })),
+            curiosityFindings: latestCuriosity?.findings,
+          }),
+        ),
+      },
       { role: 'system', content: buildAllDebateContext() },
       ...(tradeIntentTab ? [{ role: 'system', content: buildTradeIntentInstruction(tradeIntentTab) }] : []),
       ...history,
@@ -617,6 +661,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       { role: 'system', content: buildOrderFlowContext(watchlist, getOrderFlow) },
       { role: 'system', content: buildStrategyEnsembleContext(watchlist, getStrategyContextFor, (symbol) => getSnapshot(symbol) ?? null) },
       { role: 'system', content: buildAutonomousResearchContext(latestDigest) },
+      { role: 'system', content: buildCuriosityContext(latestCuriosity, watchlist) },
       { role: 'system', content: buildRiskContext(watchlist, getStrategyContextFor, 'paper', paperEquityUsd(), tradeLog, paperExistingExposureUsd(), getNews(), getWatchlistCorrelationMatrix(), paperPositionsForCorrelation()) },
       { role: 'system', content: buildPortfolioIntelligenceContext(watchlist, getWatchlistCorrelationMatrix(), paperPositionsForCorrelation(), paperEquityUsd(), getWatchlistPriceHistories()) },
       { role: 'system', content: buildMultiExchangeContext(getAllSnapshots(), watchlist) },
@@ -624,6 +669,25 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       { role: 'system', content: buildEventDetectionContext(getAllEvents(), watchlist) },
       { role: 'system', content: buildMarketIntelContext(watchlist, getNews(), getFearGreed(), getDerivatives, (item) => computeMtfSnapshot(item, getCandles), aggregatorNote) },
       { role: 'system', content: buildMemoryContext(tradeLog, getRiskPreference(), reflectionLessons) },
+      {
+        role: 'system',
+        content: buildKnowledgeGraphContext(
+          buildKnowledgeGraph({ tradeLog, reflections: graphReflections, hypotheses: graphHypotheses }),
+        ),
+      },
+      {
+        role: 'system',
+        content: buildResearchQueueContext(
+          buildResearchQueue({
+            tradeLog,
+            reflectedTradeIds: new Set(graphReflections.map((r) => r.tradeId)),
+            untestedHypotheses: graphHypotheses
+              .filter((h) => h.status === 'proposed')
+              .map((h) => ({ id: h.id, claim: h.claim, symbol: '' })),
+            curiosityFindings: latestCuriosity?.findings,
+          }),
+        ),
+      },
       { role: 'system', content: buildAllDebateContext() },
     ];
     streamInto(activeConv.id, apiMessages, assistantMsg.id);

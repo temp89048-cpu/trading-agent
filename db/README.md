@@ -32,11 +32,37 @@ Any managed Postgres works (Supabase, Neon, Railway, RDS, or a local
 | `memory_prefs` | `.data/memory-prefs.json` |
 | `debate_records` | `.data/debate-records.json` |
 | `strategy_versions` | `.data/strategy-versions.json` |
+| `missions` | `.data/missions.json` |
+| `hypotheses` | `.data/hypotheses.json` |
+| `collaboration_requests` | `.data/collaboration.json` |
+| `autonomous_cycles` | `.data/autonomous-cycles.json` |
+| `news_provider_usage` | `.data/news-usage.json` |
 | `conversations`, `messages` | `localStorage` chat history |
 | `positions`, `paper_account` | `localStorage` portfolio state |
 | `agent_tasks`, `agent_events` | `localStorage` agent scheduler state |
 | `watchlist`, `config`, `mcp_servers` | `localStorage` settings |
 | `trading_controls`, `pending_approvals` | `localStorage` Trading Controls state |
+
+Every `lib/*Store.server.ts` file has a table here, and every table maps to a
+real store — verified against the store inventory rather than assumed. Note
+that `hypotheses`, `collaboration_requests`, and `autonomous_cycles` have no
+`.data/*.json` file on disk until the corresponding feature first writes one
+(the stores create their file lazily), so an empty `.data/` directory listing
+does not mean those tables are unused.
+
+## Keeping this in sync
+
+This schema has drifted from the code before. If you add or change a store,
+update it in the same change — the cheap check is:
+
+```bash
+ls lib/*Store.server.ts          # every one needs a table
+grep '^CREATE TABLE' db/schema.sql
+```
+
+Field-level drift is the easier kind to miss. When you add a field to a
+persisted type in `lib/types.ts` (or to a record type in a `*.server.ts`
+store), add the column here too.
 
 ## Design notes
 
@@ -57,11 +83,29 @@ Any managed Postgres works (Supabase, Neon, Railway, RDS, or a local
   is a one-line `ALTER TABLE` instead. Matches every union type in
   `lib/types.ts` (e.g. `TradeSide`, `AgentMode`, `DecisionOutcome`).
 - **Append-only tables are enforced at the DB layer, not just in app code.**
-  `decisions` and `strategy_versions` are never updated or deleted by the
-  application (`lib/decisionStore.server.ts` and
-  `lib/strategyVersionStore.server.ts` export no update/delete function) —
-  `schema.sql` backs that with `REVOKE UPDATE, DELETE ... FROM PUBLIC` so a
-  bug or a future contributor can't quietly start editing history.
+  `decisions`, `strategy_versions`, and `collaboration_requests` are never
+  updated or deleted by the application (their store modules export no
+  update/delete function) — `schema.sql` backs that with
+  `REVOKE UPDATE, DELETE ... FROM PUBLIC` so a bug or a future contributor
+  can't quietly start editing history.
+- **`autonomous_cycles` is append-only but TRIMMED, which is different.**
+  It records every autonomous loop cycle — including the ones that decided
+  *not* to trade, because a no-trade decision with a stated reason is still
+  a decision worth auditing. But it appends on a fixed 60-second interval
+  indefinitely, so unlike the tables above the application keeps only the
+  most recent 500 rows. It therefore does *not* get a `REVOKE DELETE`:
+  deletion is part of its intended behavior. Don't treat it as a complete
+  historical record.
+- **`hypotheses.status = 'applied'` is a record, not an action.** No
+  application code sets it; it exists so a human can note that *they*
+  applied a change themselves. Nothing in the learning path may write to
+  `trading_controls` or strategy config — that boundary is the whole point
+  of the self-learning pipeline's safety design, and it should stay
+  enforced in review.
+- **No leverage ceiling column, deliberately.** `ABSOLUTE_MAX_LEVERAGE`
+  lives in `lib/riskManager.ts`, outside `RiskConfig`, precisely so no
+  configuration surface can raise it. Adding it to `trading_controls`
+  would recreate exactly the override path it exists to prevent.
 - **Singleton tables use a fixed `'default'` id.** `memory_prefs`,
   `paper_account`, `config`, and `trading_controls` all represent
   "the one operator's" state today — there's exactly one row, seeded by the
@@ -78,14 +122,22 @@ not just running the SQL:
    every table needs a `user_id` column (and the singleton tables stop being
    singletons — `memory_prefs`/`config`/`paper_account`/`trading_controls`
    become one row per user instead of one row total).
-2. **Where do API keys live?** `config.api_keys` is a direct mirror of the
-   app's current `localStorage` `Config.apiKeys` field — but storing API
-   keys in a plain `jsonb` column server-side is a materially different
-   trust model than client-side `localStorage` (a DB breach now exposes
-   every user's keys, not just one browser's). If you migrate `config`
-   server-side, encrypting that column (or moving keys to a secrets
-   manager and keeping only a reference here) is worth doing at the same
-   time, not as a follow-up.
+2. **Where do API keys live?** There are now **two** key-bearing columns,
+   not one: `config.api_keys` (the main LLM provider) and
+   `trading_controls.second_opinion_api_keys` (the Collaboration Protocol
+   model). Both mirror `localStorage` today. Storing keys in plain `jsonb`
+   server-side is a materially different trust model than client-side
+   `localStorage` — a DB breach exposes every key, not just one browser's.
+   If you migrate either table, encrypt both columns (or move keys to a
+   secrets manager and keep only a reference here) at the same time, not
+   as a follow-up.
+
+   Separately: **exchange** API keys are deliberately *absent* from this
+   schema entirely. They live only in `localStorage`
+   (`components/ExchangeAccounts.tsx`) and are the highest-value secret in
+   the app, since they can move real funds. Do not add a column for them
+   without a real secrets-management decision first — see
+   `REAL_TRADING.md`.
 3. **Ephemeral filesystem problem, solved — but check your hosting.** The
    whole point of this migration is fixing "writes vanish on serverless
    restarts." Confirm wherever you deploy actually gives you a persistent

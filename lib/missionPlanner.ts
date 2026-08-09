@@ -18,7 +18,8 @@ export type MissionType =
   | 'capital-preservation'
   | 'event-reduction'
   | 'accumulation'
-  | 'cash-allocation';
+  | 'cash-allocation'
+  | 'capital-target';
 
 export type MissionStatus = 'active' | 'paused' | 'completed' | 'failed' | 'expired';
 
@@ -55,12 +56,26 @@ export type CashAllocationTarget = {
   timeframeDays: number;
 };
 
+// A concrete dollar-value growth goal — e.g. "start at $2, reach $20" —
+// deliberately WITHOUT a timeframeDays/deadline. A hard deadline on a
+// financial outcome pushes toward unsafe risk-taking to hit the number
+// in time; this target only ever informs (see scoreMissionAlignment
+// below), it never becomes a hard requirement anywhere in Risk/
+// Supervisor. See TradingOS-Engineering-Spec-and-Prompts.md Section 0
+// for the exact reasoning this encodes.
+export type CapitalTargetTarget = {
+  type: 'capital-target';
+  startEquityUsd: number;
+  targetEquityUsd: number;
+};
+
 export type MissionTarget =
   | GrowthTarget
   | CapitalPreservationTarget
   | EventReductionTarget
   | AccumulationTarget
-  | CashAllocationTarget;
+  | CashAllocationTarget
+  | CapitalTargetTarget;
 
 // ---- Mission Constraints --------------------------------------------
 
@@ -218,6 +233,36 @@ export function evaluateMission(mission: Mission, ctx: MissionPortfolioContext):
         detail: `Cash: ${cashPct.toFixed(1)}% of portfolio (target: ${target.targetCashPct}%) — ${Math.max(0, target.timeframeDays - Math.floor(elapsedDays))} days remaining`,
       };
     }
+
+    case 'capital-target': {
+      const totalDelta = target.targetEquityUsd - target.startEquityUsd;
+      const achievedDelta = ctx.totalEquityUsd - target.startEquityUsd;
+      const progressPct = totalDelta !== 0
+        ? Math.min(100, Math.max(0, (achievedDelta / totalDelta) * 100))
+        : ctx.totalEquityUsd >= target.targetEquityUsd ? 100 : 0;
+      // No deadline to be "behind schedule" against by design (see the
+      // type's own comment) — status instead reflects whether progress
+      // already made is holding up or being given back, using
+      // drawdown-from-peak, the same signal every other mission type
+      // already has available in ctx.
+      const drawdownFromPeakPct = ctx.peakEquityUsd > 0 ? ((ctx.peakEquityUsd - ctx.totalEquityUsd) / ctx.peakEquityUsd) * 100 : 0;
+      const status: MissionProgressStatus =
+        progressPct >= 100
+          ? 'ahead'
+          : drawdownFromPeakPct >= 20
+            ? 'at-risk'
+            : drawdownFromPeakPct >= 8
+              ? 'behind'
+              : achievedDelta > 0
+                ? 'ahead'
+                : 'on-track';
+      return {
+        currentPct: progressPct,
+        status,
+        lastEvaluatedAt: now,
+        detail: `Equity $${ctx.totalEquityUsd.toFixed(2)} toward the $${target.startEquityUsd.toFixed(2)} → $${target.targetEquityUsd.toFixed(2)} target (${progressPct.toFixed(1)}% there, no fixed deadline)${drawdownFromPeakPct > 0.01 ? ` — ${drawdownFromPeakPct.toFixed(1)}% off peak equity` : ''}.`,
+      };
+    }
   }
 }
 
@@ -309,6 +354,29 @@ export function scoreMissionAlignment(
       } else {
         alignment = 'misaligned';
         reasons.push('Buy decreases cash allocation during a cash-allocation mission.');
+      }
+      break;
+
+    case 'capital-target':
+      // Advisory only, same as every other case here — never blocks.
+      // Flags position sizes that look disproportionate to how far
+      // along the goal already is: sizing up aggressively AFTER real
+      // progress risks giving back gains that are hard to rebuild from
+      // a small starting balance.
+      if (trade.side === 'buy') {
+        const notional = trade.qty * trade.price;
+        const pctOfEquity = ctx.totalEquityUsd > 0 ? (notional / ctx.totalEquityUsd) * 100 : 100;
+        const progressPct = mission.progress.currentPct;
+        if (progressPct >= 50 && pctOfEquity > 25) {
+          alignment = 'misaligned';
+          reasons.push(`Already ${progressPct.toFixed(0)}% toward the $${target.targetEquityUsd.toLocaleString()} target — a ${pctOfEquity.toFixed(0)}%-of-equity buy risks giving back hard-won progress. Sizing down preserves what's already been achieved.`);
+        } else {
+          alignment = 'aligned';
+          reasons.push(`Buy contributes toward the $${target.targetEquityUsd.toLocaleString()} capital target (currently ${progressPct.toFixed(0)}% there).`);
+        }
+      } else {
+        alignment = 'aligned';
+        reasons.push('Sell/close — no conflict with the capital-target mission.');
       }
       break;
   }
@@ -414,6 +482,14 @@ export function checkMissionExpiry(mission: Mission): MissionStatus {
     return mission.progress.currentPct >= 100 ? 'completed' : 'expired';
   }
 
+  // capital-target has neither timeframeDays nor a deadline (by
+  // design — see the type's own comment), so it never expires on its
+  // own, but reaching the target still needs to be detected somewhere
+  // since there's no deadline check above to piggyback that on.
+  if (target.type === 'capital-target' && mission.progress.currentPct >= 100) {
+    return 'completed';
+  }
+
   return 'active';
 }
 
@@ -452,6 +528,14 @@ export function getDefaultConstraints(type: MissionType): MissionConstraint[] {
         { kind: 'allowed-sides', sides: ['sell'] },
         { kind: 'min-cash-reserve-pct', value: 30 },
       ];
+    case 'capital-target':
+      // Tighter than 'growth's defaults (15%/5x) — real dollars toward
+      // a stated personal goal warrant a more conservative default, not
+      // a looser one, even though the user can raise it after creation.
+      return [
+        { kind: 'max-position-size-pct', value: 10 },
+        { kind: 'max-leverage', value: 3 },
+      ];
   }
 }
 
@@ -463,6 +547,7 @@ export const MISSION_TYPE_LABELS: Record<MissionType, string> = {
   'event-reduction': '⚡ Event Reduction',
   accumulation: '🏦 Accumulation',
   'cash-allocation': '💵 Cash Allocation',
+  'capital-target': '🎯 Capital Target',
 };
 
 export const MISSION_STATUS_LABELS: Record<MissionStatus, string> = {
@@ -485,5 +570,7 @@ export function describeMissionTarget(target: MissionTarget): string {
       return `Accumulate ${target.targetQty} ${target.symbol} below $${target.maxAvgCost.toLocaleString()}`;
     case 'cash-allocation':
       return `Increase cash to ${target.targetCashPct}% within ${target.timeframeDays} days`;
+    case 'capital-target':
+      return `Grow $${target.startEquityUsd.toLocaleString()} to $${target.targetEquityUsd.toLocaleString()} — no fixed deadline`;
   }
 }

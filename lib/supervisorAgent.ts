@@ -5,6 +5,7 @@ import type { NewsItem } from './sentimentAgent';
 import { runTradeSimulation } from './simulation';
 import { buildExplainableRecommendation, sourced, unavailable, type ExplainableRecommendation, type ReasonBullet } from './explainableOutput';
 import type { MissionAlignmentResult } from './missionPlanner';
+import { updateBelief, evidenceFromConfidence, describeBeliefUpdate, type BayesianEvidence } from './bayesian';
 
 // ---------------------------------------------------------------------
 // Supervisor Agent (Level 19) — the orchestration layer.
@@ -95,6 +96,17 @@ export type SupervisorRequest = {
   // Human-in-the-loop configurable risk limits (Production Readiness
   // Review #17) — merged over DEFAULT_RISK_CONFIG inside validateTrade.
   riskConfig?: Partial<RiskConfig>;
+  // User-declared 'real' tab starting capital (components/
+  // TradingControls.tsx) — lets checkDailyLoss/checkDrawdown actually
+  // gate real trades instead of reading 'unavailable'. null/undefined
+  // preserves exactly today's behavior.
+  realStartingEquityUsd?: number | null;
+  // Active market events for this symbol, supplied by the caller
+  // (components/Supervisor.tsx reads them from Event Detection). Used as
+  // Bayesian evidence against entering into unusual conditions, in
+  // addition to the caution notes they already produce. Optional —
+  // omitting them simply contributes no evidence.
+  eventNotes?: { kind: string; severity: 'medium' | 'high' }[];
   // Phase 22: Mission Planner alignment result — optional, only present
   // when an active mission exists and the caller computed alignment.
   missionAlignment?: MissionAlignmentResult | null;
@@ -232,6 +244,7 @@ export function reviewTradeRequest(request: SupervisorRequest): SupervisorDecisi
     newsHeadlines: request.newsHeadlines,
     correlationInputs: request.correlationInputs,
     riskConfig: request.riskConfig,
+    realStartingEquityUsd: request.realStartingEquityUsd,
   });
 
   const conflictBullets: ReasonBullet[] = conflictNotes.map((text) => ({ text, source: 'Supervisor — cross-agent conflict check (Tier 2, non-blocking)' }));
@@ -277,9 +290,46 @@ function buildBuyExplainable(request: SupervisorRequest, riskValidation: RiskVal
   reasonBullets.push(...conflictBullets);
   if (reasonBullets.length === 0) reasonBullets.push({ text: 'All Risk Manager checks passed with no cross-agent conflicts.', source: 'Supervisor summary' });
 
-  const probability = request.debateRecommendation
-    ? sourced(request.debateRecommendation.compositeConfidencePct, 'Confidence Calibration + Composite (Commit 19, via Debate System)')
-    : unavailable('no Debate run available for this request — see the Debate panel for a calibrated probability');
+  // Bayesian posterior (spec Section 10 / roadmap Phase 52) instead of a
+  // single static confidence. The Debate composite is the PRIOR; the
+  // ensemble consensus, market-regime fit, and any active market events
+  // are then folded in as independent-ish evidence, each shifting the
+  // belief rather than replacing it.
+  //
+  // Falls back to the raw Debate number (previous behavior) when there's
+  // no prior to start from — a posterior built on nothing is not more
+  // informative than saying so.
+  const probability = (() => {
+    if (!request.debateRecommendation) {
+      return unavailable('no Debate run available for this request — no prior to update from, so no probability is claimed');
+    }
+    const prior = Math.min(1, Math.max(0, request.debateRecommendation.compositeConfidencePct / 100));
+    const evidence: BayesianEvidence[] = [];
+
+    if (request.ensembleConsensus && request.ensembleConsensus.signal !== 'HOLD') {
+      evidence.push(
+        evidenceFromConfidence(
+          'Strategy Ensemble',
+          'Strategy Ensemble consensus',
+          request.ensembleConsensus.confidencePct / 100,
+          request.ensembleConsensus.signal === 'BUY',
+        ),
+      );
+    }
+    // A high-severity market event is genuine evidence against entering
+    // into unusual conditions, and is already surfaced as a caution note
+    // — folding it in here makes it affect the stated probability too,
+    // instead of only appearing as prose.
+    for (const note of request.eventNotes ?? []) {
+      evidence.push({ label: note.kind, source: 'Event Detection', likelihoodRatio: note.severity === 'high' ? 0.5 : 0.8 });
+    }
+
+    const belief = updateBelief({ prior, evidence });
+    return sourced(
+      belief.posteriorPct,
+      `Bayesian posterior — ${describeBeliefUpdate(belief)} (prior: Debate composite; ${belief.steps.length} informative update(s)). ${belief.notes.join(' ')}`,
+    );
+  })();
 
   return buildExplainableRecommendation({
     symbol: request.symbol,

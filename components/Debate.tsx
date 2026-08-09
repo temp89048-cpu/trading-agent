@@ -22,6 +22,22 @@ type DebateValue = {
     monteCarloRiskOfRuinPct?: number | null;
   }) => Promise<{ id: string; result: FullDebateResult }>;
   getLatestDebate: (symbol: string) => { id: string; result: FullDebateResult; ts: number } | undefined;
+  // Same computation as runDebate, but synchronous — for callers that
+  // need a same-tick answer (the Supervisor's autonomous decision gate,
+  // components/Supervisor.tsx) rather than a human waiting on a button
+  // click. runFullDebate itself is a pure, deterministic computation
+  // (no LLM call — see lib/debate/moderator.ts's header comment), so
+  // there's nothing to await; persistence (the /api/debate POST) still
+  // happens fire-and-forget, same as runDebate, it's just not what the
+  // caller waits on.
+  runDebateSync: (params: {
+    symbol: string;
+    ctx: StrategyContext;
+    sentiment: SentimentResult | null;
+    liveCandles: Candle[];
+    backtestStability?: StabilityScore | null;
+    monteCarloRiskOfRuinPct?: number | null;
+  }) => { id: string; result: FullDebateResult };
 };
 
 const DebateContext = createContext<DebateValue | null>(null);
@@ -55,14 +71,19 @@ export function DebateProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
-  async function runDebate(params: {
+  type RunDebateParams = {
     symbol: string;
     ctx: StrategyContext;
     sentiment: SentimentResult | null;
     liveCandles: Candle[];
     backtestStability?: StabilityScore | null;
     monteCarloRiskOfRuinPct?: number | null;
-  }): Promise<{ id: string; result: FullDebateResult }> {
+  };
+
+  // Shared by runDebate/runDebateSync: the actual computation and the
+  // resulting record are identical either way — only how persistence is
+  // awaited differs.
+  function computeDebateRecord(params: RunDebateParams): { id: string; result: FullDebateResult; record: DebateRecord } {
     const result = runFullDebate({
       ctx: params.ctx,
       sentiment: params.sentiment,
@@ -87,14 +108,27 @@ export function DebateProvider({ children }: { children: React.ReactNode }) {
       outcome: null,
       outcomePnlUsd: null,
     };
+    return { id, result, record };
+  }
 
-    try {
-      await fetch('/api/debate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(record) });
-      setRecords((prev) => [...prev, record]);
-    } catch {
-      // advisory persistence failure — proceed with the in-memory result regardless
-    }
+  function persistDebateRecord(record: DebateRecord): Promise<void> {
+    return fetch('/api/debate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(record) })
+      .then(() => setRecords((prev) => [...prev, record]))
+      .catch(() => {
+        // advisory persistence failure — proceed with the in-memory result regardless
+      });
+  }
 
+  async function runDebate(params: RunDebateParams): Promise<{ id: string; result: FullDebateResult }> {
+    const { id, result, record } = computeDebateRecord(params);
+    await persistDebateRecord(record);
+    setLatestBySymbol((prev) => ({ ...prev, [params.symbol]: { id, result, ts: Date.now() } }));
+    return { id, result };
+  }
+
+  function runDebateSync(params: RunDebateParams): { id: string; result: FullDebateResult } {
+    const { id, result, record } = computeDebateRecord(params);
+    persistDebateRecord(record); // fire-and-forget — caller needs the result now, not the persisted confirmation
     setLatestBySymbol((prev) => ({ ...prev, [params.symbol]: { id, result, ts: Date.now() } }));
     return { id, result };
   }
@@ -129,6 +163,7 @@ export function DebateProvider({ children }: { children: React.ReactNode }) {
     records,
     recordsLoaded,
     runDebate,
+    runDebateSync,
     getLatestDebate: (symbol) => {
       const entry = latestBySymbol[symbol];
       if (!entry || Date.now() - entry.ts > DEBATE_FRESHNESS_MS) return undefined;

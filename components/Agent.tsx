@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { loadLS, saveLS, uid } from '@/lib/storage';
-import { agentTick, DEFAULT_SIGNAL_CONFIRM_ENSEMBLE_PCT, type VolatilityContext } from '@/lib/agentEngine';
+import { agentTick, DEFAULT_SIGNAL_CONFIRM_ENSEMBLE_PCT, DEFAULT_THESIS_EXIT_CONFIDENCE_PCT, type ThesisContext, type VolatilityContext } from '@/lib/agentEngine';
 import { atr } from '@/lib/indicators';
 import { useMarketData } from './MarketData';
 import { usePortfolio } from './Portfolio';
@@ -10,8 +10,11 @@ import { useCandles } from './Candles';
 import { useOrderFlow } from './OrderFlow';
 import { useMultiExchange } from './MultiExchange';
 import { useDebate } from './Debate';
+import { useMarketIntel } from './MarketIntel';
 import { buildStrategyContext } from '@/lib/strategyContext';
-import { runStrategyEnsemble } from '@/lib/strategyEnsemble';
+import { runStrategyEnsembleGated } from '@/lib/strategyEnsemble';
+import { computeSentiment } from '@/lib/sentimentAgent';
+import { checkCapability } from '@/lib/providerCapabilities';
 import { useSupervisor } from './Supervisor';
 import { captureContextSnapshot } from '@/lib/reflectionAgent';
 import { buildPlanSnapshot, describeCondition, type PlanCondition } from '@/lib/plannerAgent';
@@ -46,6 +49,8 @@ export type NewAgentSpec = {
   requireSignalConfirmation?: boolean;
   minEnsembleConfidencePct?: number;
   minDebateConfidencePct?: number;
+  exitOnThesisInvalidation?: boolean;
+  thesisExitConfidencePct?: number;
 };
 
 type AgentValue = {
@@ -69,7 +74,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   const { getCandles } = useCandles();
   const { getOrderFlow } = useOrderFlow();
   const { getSnapshot } = useMultiExchange();
-  const { getLatestDebate } = useDebate();
+  const { getLatestDebate, runDebateSync } = useDebate();
+  const { getNews, getFearGreed, getDerivatives } = useMarketIntel();
   const { reviewAndExecute } = useSupervisor();
   const [tasks, setTasks] = useState<AgentTask[]>([]);
   const [events, setEvents] = useState<AgentEvent[]>([]);
@@ -101,6 +107,10 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   getSnapshotRef.current = getSnapshot;
   const getLatestDebateRef = useRef(getLatestDebate);
   getLatestDebateRef.current = getLatestDebate;
+  const runDebateSyncRef = useRef(runDebateSync);
+  runDebateSyncRef.current = runDebateSync;
+  const marketIntelRef = useRef({ getNews, getFearGreed, getDerivatives });
+  marketIntelRef.current = { getNews, getFearGreed, getDerivatives };
   // Commit 24: the Supervisor is now the ONLY thing this scheduler
   // calls to actually execute anything — same ref-freshness reasoning
   // as getCandlesRef/getOrderFlowRef above, since reviewAndExecute
@@ -155,6 +165,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       requireSignalConfirmation: spec.requireSignalConfirmation,
       minEnsembleConfidencePct: spec.minEnsembleConfidencePct,
       minDebateConfidencePct: spec.minDebateConfidencePct,
+      exitOnThesisInvalidation: spec.exitOnThesisInvalidation,
+      thesisExitConfidencePct: spec.thesisExitConfidencePct,
     };
     setTasks((prev) => {
       const next = [...prev, task];
@@ -215,6 +227,11 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       // execute, but still needs to land in the next setTasks so the
       // NEXT tick's trail level is computed off the right peak.
       const peakUpdates = new Map<string, Partial<AgentTask>>();
+      // Thesis-invalidation reasons from Pass 1, keyed by task id — the
+      // close result only carries the boolean, so the human-readable
+      // "why" is carried alongside it rather than pushed into
+      // agentEngine's pure result shape.
+      const thesisReasons = new Map<string, string>();
       for (const task of currentTasks) {
         if (task.status !== 'running') continue;
         const price = ticksRef.current[task.symbol]?.price;
@@ -243,7 +260,36 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
               return atrValue !== null && lastClose ? { atrPercent: (atrValue / lastClose) * 100 } : undefined;
             })()
           : undefined;
-        const result = agentTick(task, now, price, snapshot, volCtx);
+        // Continuous monitoring (spec Section 14): for tasks that opted
+        // in, re-evaluate whether the entry thesis still holds while a
+        // leg is open. Gated strictly to opted-in tasks WITH an open leg
+        // so no extra indicator work runs for anything else every tick.
+        const needsThesisCheck = task.exitOnThesisInvalidation === true && task.currentEntryPrice !== undefined;
+        const thesis: ThesisContext | undefined = needsThesisCheck
+          ? (() => {
+              const primary = getCandlesRef.current(task.symbol, '1h');
+              if (!primary || primary.candles.length === 0) return undefined; // can't judge — leave the leg alone rather than guess
+              const ctx = buildStrategyContext(
+                { symbol: task.symbol, type: task.symbol.includes('/') ? 'crypto' : 'equity' },
+                primary.candles,
+                getCandlesRef.current,
+                getOrderFlowRef.current(task.symbol),
+              );
+              if (!ctx) return undefined;
+              const ensemble = runStrategyEnsembleGated(ctx, getSnapshotRef.current(task.symbol) ?? null);
+              const opposite = task.side === 'buy' ? 'SELL' : 'BUY';
+              const floor = task.thesisExitConfidencePct ?? DEFAULT_THESIS_EXIT_CONFIDENCE_PCT;
+              if (ensemble.consensus === opposite && ensemble.confidencePct >= floor) {
+                return {
+                  invalidated: true,
+                  reason: `Strategy Ensemble flipped to ${opposite} at ${ensemble.confidencePct.toFixed(0)}% confidence (>= ${floor}% exit floor) — the read that justified this ${task.side} no longer holds.`,
+                };
+              }
+              return { invalidated: false, reason: '' };
+            })()
+          : undefined;
+        if (thesis?.invalidated) thesisReasons.set(task.id, thesis.reason);
+        const result = agentTick(task, now, price, snapshot, volCtx, thesis);
         if (result.action === 'none') {
           if (result.patch) peakUpdates.set(task.id, result.patch);
           continue;
@@ -324,16 +370,33 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
           // `updates` leaves the task's state unchanged, so it's simply
           // re-checked again next tick (no nextRunAt/planStage consumed).
           if (task.requireSignalConfirmation) {
-            const ensemble = runStrategyEnsemble(strategyCtx, getSnapshotRef.current(task.symbol) ?? null);
+            const ensemble = runStrategyEnsembleGated(strategyCtx, getSnapshotRef.current(task.symbol) ?? null);
             const minEnsemblePct = task.minEnsembleConfidencePct ?? DEFAULT_SIGNAL_CONFIRM_ENSEMBLE_PCT;
             const ensembleAgrees = ensemble.consensus === task.side.toUpperCase() && ensemble.confidencePct >= minEnsemblePct;
 
-            const debate = getLatestDebateRef.current(task.symbol);
-            // No debate result yet for this symbol isn't a reason to
-            // block forever on data that doesn't exist — the ensemble
-            // check alone gates in that case. Once a debate result DOES
-            // exist, it must actually agree (and clear the confidence
-            // floor, if one's set) same as the ensemble.
+            let debate = getLatestDebateRef.current(task.symbol);
+            // A task that explicitly set minDebateConfidencePct is
+            // asking for Debate's opinion specifically — silently
+            // treating "no debate cached yet" as "agrees" would let it
+            // enter without ever actually consulting the second opinion
+            // it asked for. runFullDebate is a deterministic computation
+            // over data already on hand (no LLM call — see
+            // lib/debate/moderator.ts), so it's run right here rather
+            // than skipped. A task that didn't set minDebateConfidencePct
+            // never cared about Debate in the first place — the ensemble
+            // check alone still gates that case, same as before.
+            if (!debate && task.minDebateConfidencePct !== undefined) {
+              const primary = getCandlesRef.current(task.symbol, '1h');
+              if (primary && primary.candles.length > 0) {
+                const cap = checkCapability({ symbol: task.symbol, type: task.symbol.includes('/') ? 'crypto' : 'equity' }, 'fundingRate');
+                const { getNews, getFearGreed, getDerivatives } = marketIntelRef.current;
+                const derivatives = cap.supported ? getDerivatives(task.symbol) : undefined;
+                const fearGreed = task.symbol.includes('/') ? getFearGreed() : undefined;
+                const sentiment = computeSentiment(task.symbol, getNews(), derivatives ?? null, fearGreed ?? null);
+                const { id, result } = runDebateSyncRef.current({ symbol: task.symbol, ctx: strategyCtx, sentiment, liveCandles: primary.candles });
+                debate = { id, result, ts: now };
+              }
+            }
             const debateAgrees = !debate
               ? true
               : debate.result.moderator.recommendation === task.side.toUpperCase() &&
@@ -359,6 +422,11 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
             requestedLeverage: task.leverage,
             entryContext: captureContextSnapshot(task.symbol, getCandlesRef.current),
             pendingApprovalKey: task.id,
+            // Stable across retries of THIS leg (the tick loop
+            // re-proposes the same leg every 3s until it executes) but
+            // distinct for the next leg — exactly the property the
+            // exchange idempotency key needs. See lib/executionQuality.ts.
+            intentId: `${task.id}-open-${task.executedTrades}`,
           });
 
           if (!decision.approved) {
@@ -460,6 +528,12 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
           price: result.price,
           originTag: 'agent-plan',
           isStopOrTargetTriggered: true,
+          // Distinct from the open leg's intent, and stable per close.
+          // A scale-out level closes a fraction of the SAME leg, so its
+          // index is included — otherwise two partial closes of one leg
+          // would share a key and the second would be suppressed as a
+          // duplicate.
+          intentId: `${task.id}-close-${task.executedTrades}-${result.scaleOutLevelIndex ?? 'full'}`,
         });
         if (!closeExecuted && !closeOrderSubmitted) {
           // The real position no longer has this qty available — most
@@ -531,11 +605,16 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
 
         const executedTrades = task.executedTrades + 1;
         const realizedTotal = task.realizedTotal + result.pnl;
-        const hitLabel = result.pnl >= 0 ? 'TP' : 'SL';
+        // A thesis-driven exit is neither a TP nor an SL — labelling it
+        // as one of those would misreport WHY the position closed, which
+        // is exactly the information the Reflection/Hypothesis pipeline
+        // then learns from.
+        const hitLabel = result.thesisInvalidated ? 'thesis invalidated' : result.pnl >= 0 ? 'TP' : 'SL';
+        const thesisSuffix = result.thesisInvalidated ? ` ${thesisReasons.get(task.id) ?? ''}`.trimEnd() : '';
         pushEvent(
           task.id,
           'closed',
-          `🤖 Agent trade ${executedTrades}/${task.totalTrades} closed (${hitLabel}): ${task.symbol} @ $${result.price.toLocaleString()}, P&L ${result.pnl >= 0 ? '+' : ''}$${result.pnl.toFixed(2)}. Running total: ${realizedTotal >= 0 ? '+' : ''}$${realizedTotal.toFixed(2)}.`,
+          `🤖 Agent trade ${executedTrades}/${task.totalTrades} closed (${hitLabel}): ${task.symbol} @ $${result.price.toLocaleString()}, P&L ${result.pnl >= 0 ? '+' : ''}$${result.pnl.toFixed(2)}. Running total: ${realizedTotal >= 0 ? '+' : ''}$${realizedTotal.toFixed(2)}.${thesisSuffix}`,
           task.conversationId,
         );
         updates.set(task.id, {

@@ -8,10 +8,11 @@
 // Trading Sidebar.
 // =====================================================================
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useAgentRuntime } from './AgentRuntime';
 import { Icon } from './Icon';
-import type { AgentCategory, AgentLifecycleState } from '@/lib/agentOS';
+import { contractCoverage, type AgentCategory, type AgentLifecycleState } from '@/lib/agentOS';
+import { AGENT_DESCRIPTORS } from '@/lib/agentDescriptors';
 
 const STATE_COLORS: Record<AgentLifecycleState, string> = {
   init: 'var(--txt-2)',
@@ -53,6 +54,10 @@ const CATEGORY_ORDER: AgentCategory[] = [
 
 export function AgentOSPanel() {
   const { snapshot, pauseAgent, resumeAgent, restartAgent } = useAgentRuntime();
+  // Computed from the static descriptor list rather than the live
+  // snapshot: contract coverage is a property of what's been SPECIFIED,
+  // not of what happens to be registered and running right now.
+  const coverage = useMemo(() => contractCoverage(AGENT_DESCRIPTORS), []);
   const [expandedCategory, setExpandedCategory] = useState<AgentCategory | null>(null);
   const [showDetails, setShowDetails] = useState<string | null>(null);
 
@@ -102,6 +107,30 @@ export function AgentOSPanel() {
           style={{ background: snapshot.schedulerRunning ? 'var(--green)' : 'var(--red)' }}
         />
         Scheduler {snapshot.schedulerRunning ? 'active' : 'stopped'}
+      </div>
+
+      {/* Agent-contract coverage (engineering spec Section 5). Reported
+          rather than assumed: the spec says every agent must have a full
+          contract, so the honest thing is to show how many actually do.
+          The execution-authority check is a safety assertion — only the
+          Supervisor may hold 'execute-trades', so a non-empty list here
+          means an agent has been given a path to execution it shouldn't
+          have. */}
+      <div className="flex flex-col gap-0.5 text-[9px] font-mono text-txt2">
+        <span>
+          Agent contracts: {coverage.withContract}/{coverage.total} specified
+        </span>
+        {coverage.missing.length > 0 && (
+          <span className="text-txt2">
+            missing: {coverage.missing.slice(0, 6).join(', ')}
+            {coverage.missing.length > 6 ? ` +${coverage.missing.length - 6} more` : ''}
+          </span>
+        )}
+        {coverage.unexpectedExecutionAuthority.length > 0 && (
+          <span className="text-red">
+            ⚠ unexpected execution authority: {coverage.unexpectedExecutionAuthority.join(', ')}
+          </span>
+        )}
       </div>
 
       {/* Category groups */}

@@ -112,6 +112,10 @@ export async function placeMarketOrder(creds: ExchangeCredentials, params: Place
     side: params.side === 'buy' ? 'Buy' : 'Sell',
     orderType: 'Market',
     qty,
+    // Idempotency: Bybit V5 rejects a duplicate orderLinkId, which is
+    // what makes a retry safe. Omitted when the caller didn't supply one
+    // (previous behavior) rather than inventing an unstable key.
+    ...(params.clientOrderId ? { orderLinkId: params.clientOrderId } : {}),
   });
   if (!result.ok) return { ok: false, error: result.error, raw: result.raw };
   const orderId = result.json?.result?.orderId;

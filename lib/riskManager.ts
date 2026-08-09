@@ -88,6 +88,43 @@ const MAX_PORTFOLIO_EXPOSURE_PCT = 0.75; // total value of ALL open positions (e
 const CORRELATION_REJECT_THRESHOLD_DEFAULT = 0.75;
 const CORRELATION_EXPOSURE_LIMIT_PCT_DEFAULT = 0.4;
 
+// ---------------------------------------------------------------------
+// HARD LEVERAGE CEILING — deliberately NOT a member of RiskConfig.
+//
+// Every other limit in this file is operator-tunable via RiskConfig
+// (Production Readiness Review #17). This one is not, on purpose: the
+// engineering spec's Risk Engine requirements (Section 22.3) call for
+// "a hard-coded maximum leverage ceiling that no other agent, however
+// confident, can override programmatically," and its research-grounded
+// section notes that a 10x-leveraged position can be wiped out by a
+// single-digit-percent adverse move, so industry practice for a new or
+// unproven automated system is a mechanical 2-3x cap rather than a
+// model's judgment call.
+//
+// Putting it in RiskConfig would make it overridable through
+// components/TradingControls.tsx — which is exactly the thing the spec
+// says must not be possible. checkLeverage() below rejects above this
+// BEFORE any of the stop-distance math runs, so no combination of a
+// tight stop and a low liquidationSafetyBuffer can compute its way past
+// it either.
+//
+// Tab-aware on purpose, and this distinction is a deliberate judgment
+// call rather than a softening of the rule: the spec's stated rationale
+// is protecting REAL capital from a liquidation-scale adverse move, and
+// that rationale genuinely does not apply to paper trading — which is
+// exactly where a person SHOULD be able to test how a higher-leverage
+// strategy behaves before risking anything. Paper therefore gets a
+// higher ceiling, but still a hard, mechanical, non-overridable one
+// (so a runaway 100x paper task is still impossible, and paper results
+// stay at least loosely informative about real-tab behavior).
+// ---------------------------------------------------------------------
+export const ABSOLUTE_MAX_LEVERAGE = 3; // real money — the spec's mechanical 2-3x cap
+export const ABSOLUTE_MAX_LEVERAGE_PAPER = 10;
+
+export function maxLeverageCeiling(tab: TradeTab): number {
+  return tab === 'real' ? ABSOLUTE_MAX_LEVERAGE : ABSOLUTE_MAX_LEVERAGE_PAPER;
+}
+
 // Human-in-the-loop configurable risk limits (Production Readiness
 // Review #17). Every field here defaults to the exact hardcoded values
 // above/below, so a caller that never supplies a RiskConfig gets
@@ -149,11 +186,16 @@ export const PAPER_STARTING_EQUITY = 25000;
 // #12) can reuse the exact same realized-equity reconstruction that
 // feeds the daily-loss/drawdown checks, rather than re-deriving equity
 // from the trade log a second, possibly-inconsistent way.
-export function buildRealizedEquityCurve(tradeLog: TradeLogEntry[], tab: TradeTab): { ts: number; equity: number }[] {
+//
+// startingEquity defaults to PAPER_STARTING_EQUITY so every existing
+// 'paper' caller is byte-for-byte unchanged; a 'real' caller with a
+// user-declared starting capital (components/TradingControls.tsx) now
+// passes that instead of relying on the paper-only default.
+export function buildRealizedEquityCurve(tradeLog: TradeLogEntry[], tab: TradeTab, startingEquity: number = PAPER_STARTING_EQUITY): { ts: number; equity: number }[] {
   const closedSorted = tradeLog
     .filter((t) => t.tab === tab && typeof t.pnl === 'number')
     .sort((a, b) => a.ts - b.ts);
-  let running = PAPER_STARTING_EQUITY;
+  let running = startingEquity;
   const curve = [{ ts: 0, equity: running }];
   for (const t of closedSorted) {
     running += t.pnl as number;
@@ -198,11 +240,16 @@ export function checkDailyLoss(
   tab: TradeTab,
   nowMs: number = Date.now(),
   maxDailyLossPct: number = DEFAULT_RISK_CONFIG.maxDailyLossPct,
+  // A user-declared starting capital (real tab only — paper always has
+  // its own tracked baseline) lets this run for real trades too instead
+  // of always reading 'unavailable'. undefined preserves exactly
+  // today's behavior for anyone who hasn't declared one.
+  realStartingEquityUsd?: number,
 ): RiskCheck {
-  if (tab !== 'paper') {
-    return { ok: true, status: 'unavailable', detail: 'Daily loss tracking needs a starting equity baseline, which only the paper tab has — skipped for real.' };
+  if (tab !== 'paper' && realStartingEquityUsd === undefined) {
+    return { ok: true, status: 'unavailable', detail: 'Daily loss tracking needs a starting equity baseline — the paper tab tracks one automatically; for real, declare "Real account starting capital" in Trading Controls to enable this check.' };
   }
-  const curve = buildRealizedEquityCurve(tradeLog, tab);
+  const curve = buildRealizedEquityCurve(tradeLog, tab, tab === 'paper' ? PAPER_STARTING_EQUITY : realStartingEquityUsd);
   const currentEquity = curve[curve.length - 1].equity;
   const startOfDayMs = new Date(nowMs).setHours(0, 0, 0, 0);
   const beforeToday = [...curve].reverse().find((p) => p.ts > 0 && p.ts < startOfDayMs);
@@ -230,11 +277,12 @@ export function checkDrawdown(
   tradeLog: TradeLogEntry[],
   tab: TradeTab,
   maxDrawdownPct: number = DEFAULT_RISK_CONFIG.maxDrawdownPct,
+  realStartingEquityUsd?: number, // see checkDailyLoss's comment — same override, same default-preserving behavior
 ): RiskCheck {
-  if (tab !== 'paper') {
-    return { ok: true, status: 'unavailable', detail: 'Drawdown tracking needs an equity baseline, which only the paper tab has — skipped for real.' };
+  if (tab !== 'paper' && realStartingEquityUsd === undefined) {
+    return { ok: true, status: 'unavailable', detail: 'Drawdown tracking needs an equity baseline — the paper tab tracks one automatically; for real, declare "Real account starting capital" in Trading Controls to enable this check.' };
   }
-  const curve = buildRealizedEquityCurve(tradeLog, tab);
+  const curve = buildRealizedEquityCurve(tradeLog, tab, tab === 'paper' ? PAPER_STARTING_EQUITY : realStartingEquityUsd);
   const peak = Math.max(...curve.map((p) => p.equity));
   const current = curve[curve.length - 1].equity;
   const drawdownPct = peak > 0 ? (peak - current) / peak : 0;
@@ -281,7 +329,22 @@ export function checkLeverage(
   stopLoss: number,
   requestedLeverage: number,
   liquidationSafetyBuffer: number = DEFAULT_RISK_CONFIG.liquidationSafetyBuffer,
+  // Defaults to the strictest (real-money) ceiling, so any caller that
+  // forgets to pass a tab gets the SAFE behavior rather than the lax one.
+  tab: TradeTab = 'real',
 ): RiskCheck {
+  const ceiling = maxLeverageCeiling(tab);
+  // The hard ceiling is checked FIRST, before the 1x early-return and
+  // before any stop-distance math, so no tight stop / low safety buffer
+  // combination can compute past it. Not overridable via RiskConfig by
+  // design — see ABSOLUTE_MAX_LEVERAGE.
+  if (requestedLeverage > ceiling) {
+    return {
+      ok: false,
+      status: 'reject',
+      detail: `${requestedLeverage}x exceeds the hard ${ceiling}x leverage ceiling for the ${tab} tab. This ceiling is intentionally not operator-configurable and cannot be raised by any agent or confidence level — a highly-leveraged position can be liquidated by a single-digit-percent adverse move, so it is enforced mechanically rather than left to judgment.`,
+    };
+  }
   if (requestedLeverage <= 1) {
     return { ok: true, status: 'pass', detail: 'No leverage requested (1x) — liquidation-distance check not applicable' };
   }
@@ -485,7 +548,10 @@ export function buildRiskContext(
         )
       : checkCorrelation(item.symbol, 0, null, cfg.correlationRejectThreshold, cfg.correlationExposureLimitPct);
     const stopDistancePct = (slTp.stopDistance / ctx.price) * 100;
-    const maxSafeLeverage = 100 / (stopDistancePct * cfg.liquidationSafetyBuffer);
+    // Reported as the EFFECTIVE ceiling — whichever of the
+    // liquidation-distance math and the hard tab ceiling is stricter —
+    // so the model never tells the user a number the gate would reject.
+    const maxSafeLeverage = Math.min(100 / (stopDistancePct * cfg.liquidationSafetyBuffer), maxLeverageCeiling(tab));
     symbolLines.push(
       `  ${item.symbol}: long-side SL ${slTp.stopLoss.toFixed(2)} / TP ${slTp.takeProfit.toFixed(2)} (${slTp.method}); ` +
         `${sized ? `recommended size ~${(sized.qty * news.sizeMultiplier).toFixed(4)} (${sizing?.method}${news.sizeMultiplier < 1 ? ', reduced for breaking news' : ''}${kellyCap.riskPct < cfg.maxRiskPctPerTrade ? ', Kelly-capped' : ''})` : 'no equity baseline — size not computed'}; ` +
@@ -514,6 +580,7 @@ export function validateTrade(params: {
   newsHeadlines?: NewsItem[]; // defaults to [] (news check reads as 'unavailable') if omitted
   correlationInputs?: CorrelationInputs | null; // defaults to null (correlation check reads as 'unavailable') if omitted
   riskConfig?: Partial<RiskConfig>; // operator-configurable overrides (Production Readiness Review #17) — merged over DEFAULT_RISK_CONFIG
+  realStartingEquityUsd?: number | null; // real tab only — see checkDailyLoss/checkDrawdown's comments
 }): RiskValidation {
   const { ctx, side, requestedQty, equityUsd, tradeLog, tab } = params;
   const cfg: RiskConfig = { ...DEFAULT_RISK_CONFIG, ...params.riskConfig };
@@ -530,19 +597,42 @@ export function validateTrade(params: {
     recommendedSize = capped !== null && sized ? { ...sized, qty: capped * newsCheck.sizeMultiplier, method: `${sized.method}; ${kellyCap.detail}` } : null;
   }
 
+  // MANDATORY STOP-LOSS (spec Section 22.3: "a mandatory stop-loss or
+  // equivalent hard exit on every position"). Previously a null slTp
+  // (no ATR available yet) made BOTH the position-risk and leverage
+  // checks read non-blocking 'unavailable' — meaning an AI-initiated
+  // trade could execute with no computed stop AND an unchecked leverage
+  // figure, which is precisely the combination those two checks exist to
+  // prevent. Now a missing stop is a hard reject: the same
+  // "stopped rather than trade blind" principle components/Agent.tsx
+  // already applies when strategy context is missing entirely.
+  //
+  // Note this only ever gates AI-initiated trades — a human clicking Buy
+  // manually has never routed through validateTrade (see
+  // lib/supervisorAgent.ts's scope comment).
+  const noStopReject: RiskCheck = {
+    ok: false,
+    status: 'reject',
+    detail: 'No stop-loss could be computed for this symbol (no ATR available yet — not enough candle history). Every position requires a hard exit level before it can be opened, so this is rejected rather than opened unprotected.',
+  };
+
   const checks: Record<string, RiskCheck> = {
-    positionRisk: slTp ? checkPositionRisk(equityUsd, requestedQty, ctx.price, slTp.stopLoss, cfg.maxRiskPctPerTrade) : { ok: true, status: 'unavailable', detail: 'No stop-loss computed (missing ATR) — risk sizing check skipped.' },
-    dailyLoss: checkDailyLoss(tradeLog, tab, Date.now(), cfg.maxDailyLossPct),
-    drawdown: checkDrawdown(tradeLog, tab, cfg.maxDrawdownPct),
+    positionRisk: slTp ? checkPositionRisk(equityUsd, requestedQty, ctx.price, slTp.stopLoss, cfg.maxRiskPctPerTrade) : noStopReject,
+    dailyLoss: checkDailyLoss(tradeLog, tab, Date.now(), cfg.maxDailyLossPct, params.realStartingEquityUsd ?? undefined),
+    drawdown: checkDrawdown(tradeLog, tab, cfg.maxDrawdownPct, params.realStartingEquityUsd ?? undefined),
     liquidity: checkLiquidity(ctx, requestedQty, cfg.minBookDepthMultiple),
     spread: checkSpread(ctx, cfg.maxSpreadPct),
-    leverage: slTp ? checkLeverage(ctx.price, slTp.stopLoss, params.requestedLeverage ?? 1, cfg.liquidationSafetyBuffer) : { ok: true, status: 'unavailable', detail: 'No stop-loss computed — leverage safety check skipped.' },
+    leverage: slTp ? checkLeverage(ctx.price, slTp.stopLoss, params.requestedLeverage ?? 1, cfg.liquidationSafetyBuffer, tab) : noStopReject,
     portfolioExposure: checkPortfolioExposure(params.existingExposureUsd ?? null, requestedQty * ctx.price, equityUsd, cfg.maxPortfolioExposurePct),
     correlation: checkCorrelation(ctx.symbol, requestedQty * ctx.price, params.correlationInputs ?? null, cfg.correlationRejectThreshold, cfg.correlationExposureLimitPct),
     news: newsCheck,
   };
 
-  const rejectionReasons = Object.values(checks).filter((c) => c.status === 'reject').map((c) => c.detail);
+  // Deduped: two different checks can legitimately fail for the exact
+  // same root cause (e.g. a missing stop-loss blocks both positionRisk
+  // and leverage), and reporting one reason twice reads like two
+  // separate problems.
+  const rejectionReasons = Array.from(new Set(Object.values(checks).filter((c) => c.status === 'reject').map((c) => c.detail)));
   const cautionNotes = Object.values(checks).filter((c) => c.status === 'unavailable').map((c) => c.detail);
   if (newsCheck.sizeMultiplier < 1) cautionNotes.push(newsCheck.detail); // advisory, not blocking, but still visible — never silently absorbed
   if (kellyCap.riskPct < cfg.maxRiskPctPerTrade) cautionNotes.push(kellyCap.detail); // Kelly shrank sizing below the fixed cap — visible, not blocking

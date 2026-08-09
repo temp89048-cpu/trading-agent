@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { Icon } from '@/components/Icon';
 import { usePortfolio } from '@/components/Portfolio';
 import { useReflection } from '@/components/Reflection';
+import { HypothesisPanel } from '@/components/HypothesisPanel';
 
 export default function TradeDetailPage({ params }: { params: { id: string } }) {
   const { tradeLog, deleteTradeLogEntry } = usePortfolio();
@@ -127,6 +128,8 @@ export default function TradeDetailPage({ params }: { params: { id: string } }) 
                 )}
               </div>
             )}
+
+            {typeof trade.pnl === 'number' && <HypothesisPanel tradeId={trade.id} />}
 
             <div className="flex items-center gap-2">
               <button

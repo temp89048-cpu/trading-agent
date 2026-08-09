@@ -148,7 +148,15 @@ export function ExchangeAccountsProvider({ children }: { children: React.ReactNo
     const creds = connections[exchange].credentials;
     if (!creds.apiKey || !creds.apiSecret) return { ok: false, error: `No ${exchange} API credentials configured.` };
     try {
-      const json = await callExchangeApi(exchange, creds, 'placeOrder', { symbol: params.symbol, side: params.side, qty: params.qty });
+      // clientOrderId must survive this hop — it's the idempotency key,
+      // and dropping it here would silently reinstate the double-fill
+      // risk it exists to prevent.
+      const json = await callExchangeApi(exchange, creds, 'placeOrder', {
+        symbol: params.symbol,
+        side: params.side,
+        qty: params.qty,
+        clientOrderId: params.clientOrderId,
+      });
       return json as OrderResult;
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : 'Order request failed' };

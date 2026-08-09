@@ -43,6 +43,17 @@ export type PlaceOrderParams = {
   symbol: string; // app's internal "BTC/USDT" form — converted to the exchange's native form internally
   side: 'buy' | 'sell';
   qty: number; // base-asset quantity (e.g. BTC amount), not USD notional
+  // IDEMPOTENCY KEY (spec Section 19: "a retried order must never result
+  // in a duplicate fill"). Sent to the exchange as its own
+  // caller-supplied unique order id — newClientOrderId on Binance,
+  // orderLinkId on Bybit — both of which the exchange REJECTS duplicates
+  // of. Must be deterministic for one logical trade intent; build it with
+  // lib/executionQuality.ts's buildClientOrderId(), never with a random
+  // or timestamped value, since a retry has to reproduce it exactly.
+  //
+  // Optional only for backward compatibility with existing callers. Any
+  // path that can retry MUST supply one.
+  clientOrderId?: string;
 };
 
 export type OrderResult =

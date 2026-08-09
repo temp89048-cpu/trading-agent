@@ -3,6 +3,7 @@
 import { Icon } from './Icon';
 import { useAppState } from './AppState';
 import { ExportMenu } from './ExportMenu';
+import { AgentLivePnlBadge } from './AgentLivePnlBadge';
 
 export function Header({
   onToggleSidebar,
@@ -32,6 +33,7 @@ export function Header({
         <span className="hidden md:inline text-xs text-txt2">AI TRADING WORKSTATION</span>
       </div>
       <div className="flex-1" />
+      <AgentLivePnlBadge />
       <button
         onClick={onOpenSearch}
         className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-mono border transition border-line text-txt1 bg-bg2 hover:bg-bg3"

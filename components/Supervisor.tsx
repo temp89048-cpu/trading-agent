@@ -5,6 +5,7 @@ import { useMarketData } from './MarketData';
 import { useCandles } from './Candles';
 import { useOrderFlow } from './OrderFlow';
 import { useMarketIntel } from './MarketIntel';
+import { useEventDetection } from './EventDetection';
 import { usePortfolio } from './Portfolio';
 import { useDebate } from './Debate';
 import { useMultiExchange } from './MultiExchange';
@@ -12,9 +13,15 @@ import { useTradingControls } from './TradingControls';
 import { useExchangeAccounts } from './ExchangeAccounts';
 import { useMissionPlanner } from './MissionPlanner';
 import { buildStrategyContext } from '@/lib/strategyContext';
-import { runStrategyEnsemble } from '@/lib/strategyEnsemble';
+import { runStrategyEnsembleGated } from '@/lib/strategyEnsemble';
 import { computeCorrelationMatrix } from '@/lib/portfolioIntelligence';
 import { reviewTradeRequest, type SupervisorDecision, type SupervisorRequest } from '@/lib/supervisorAgent';
+import { computeSentiment } from '@/lib/sentimentAgent';
+import { checkCapability } from '@/lib/providerCapabilities';
+import { readSSEStream } from '@/lib/sse';
+import { buildCollaborationMessages, parseCollaborationResponse, type CollaborationRequestInput } from '@/lib/collaborationAgent';
+import { buildClientOrderId, computeExecutionQuality, describeExecutionQuality, isDuplicateOrderError } from '@/lib/executionQuality';
+import { uid } from '@/lib/storage';
 import type { CorrelationInputs } from '@/lib/riskManager';
 import type { DecisionOutcome, TradeTab, TradeSide, WatchItem, TradeLogEntry } from '@/lib/types';
 
@@ -51,6 +58,15 @@ export type SupervisorExecuteParams = {
   // already-queued entry instead. One-off callers (chat, manual,
   // Debate's "Act on this") can omit it — they're never retried.
   pendingApprovalKey?: string;
+  // Stable identifier for this LOGICAL trade intent, used to build the
+  // exchange idempotency key (see lib/executionQuality.ts). Must be the
+  // same across retries of the same intended order and different for
+  // genuinely different orders — e.g. `${taskId}-${legNumber}` for an
+  // agent leg. When omitted, one is derived from the request's own
+  // fields, which is still stable for a repeating caller re-proposing
+  // the identical trade but does NOT distinguish two deliberately
+  // identical orders — pass an explicit id when that matters.
+  intentId?: string;
 };
 
 // executed=false with pendingApprovalId set means "not rejected — queued
@@ -92,11 +108,23 @@ export function SupervisorProvider({ children }: { children: React.ReactNode }) 
   const { watchlist, ticks } = useMarketData();
   const { getCandles } = useCandles();
   const { getOrderFlow } = useOrderFlow();
-  const { getNews } = useMarketIntel();
+  const { getNews, getFearGreed, getDerivatives } = useMarketIntel();
+  const { getEvents } = useEventDetection();
   const { tradeLog, buyPaper, sellPaper, addRealPosition, removeRealPosition, getPortfolioSnapshot } = usePortfolio();
-  const { getLatestDebate } = useDebate();
+  const { getLatestDebate, runDebateSync } = useDebate();
   const { getSnapshot } = useMultiExchange();
-  const { paused, manualApprovalThresholdUsd, riskConfig, addPendingApproval } = useTradingControls();
+  const {
+    paused,
+    manualApprovalThresholdUsd,
+    realStartingCapitalUsd,
+    riskConfig,
+    addPendingApproval,
+    secondOpinionConfigured,
+    secondOpinionProviderObj,
+    secondOpinionResolvedModel,
+    secondOpinionResolvedApiKey,
+    secondOpinionResolvedBaseUrl,
+  } = useTradingControls();
   const { realTradingMode, preferredExchange, isConnected: isExchangeConnected, placeRealOrder, getRealOrderStatus } = useExchangeAccounts();
   const { getMissionAlignment } = useMissionPlanner();
 
@@ -122,6 +150,26 @@ export function SupervisorProvider({ children }: { children: React.ReactNode }) 
   function paperExistingExposureUsd(): number {
     const portfolio = getPortfolioSnapshot();
     return portfolio.paper.positions.reduce((sum, p) => sum + p.qty * (ticks[p.symbol]?.price ?? p.avgCost), 0);
+  }
+
+  // The 'real' tab has no tracked cash balance the way paper does (it's
+  // a manual ledger — see REAL_TRADING.md) — so equity here is
+  // reconstructed from the user-declared starting capital plus realized
+  // P&L on closed real trades plus unrealized P&L on currently open
+  // real positions, rather than read off a cash field that doesn't
+  // exist. Returns null (same as before this feature existed) when no
+  // starting capital has been declared.
+  function realEquityUsd(): number | null {
+    if (realStartingCapitalUsd === null) return null;
+    const portfolio = getPortfolioSnapshot();
+    const realizedPnl = tradeLog.filter((t) => t.tab === 'real' && typeof t.pnl === 'number').reduce((sum, t) => sum + (t.pnl as number), 0);
+    const unrealizedPnl = portfolio.real.positions.reduce((sum, p) => sum + p.qty * ((ticks[p.symbol]?.price ?? p.avgCost) - p.avgCost), 0);
+    return realStartingCapitalUsd + realizedPnl + unrealizedPnl;
+  }
+
+  function realExistingExposureUsd(): number {
+    const portfolio = getPortfolioSnapshot();
+    return portfolio.real.positions.reduce((sum, p) => sum + p.qty * (ticks[p.symbol]?.price ?? p.avgCost), 0);
   }
 
   function correlationInputsFor(symbol: string): CorrelationInputs {
@@ -197,7 +245,17 @@ export function SupervisorProvider({ children }: { children: React.ReactNode }) 
   // risk-approved, not yet executed, because a live order was still in
   // flight). This appends the real outcome rather than editing that row —
   // decisions are append-only by design (see lib/decisionStore.server.ts).
-  function logRealOrderFollowup(params: SupervisorExecuteParams, exchange: string, outcome: 'approved-executed' | 'rejected', exchangeOrderId?: string, errorMsg?: string) {
+  function logRealOrderFollowup(
+    params: SupervisorExecuteParams,
+    exchange: string,
+    outcome: 'approved-executed' | 'rejected' | 'approved-not-executed',
+    exchangeOrderId?: string,
+    errorMsg?: string,
+    // Execution-quality summary (slippage/latency/score) — appended to
+    // the audit record so a bad fill is visible next to the decision that
+    // caused it, not buried in a separate metrics surface.
+    executionNote?: string,
+  ) {
     fetch('/api/decisions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -212,7 +270,6 @@ export function SupervisorProvider({ children }: { children: React.ReactNode }) 
         urgency: 'critical', // a real-money order resolving (either way) always deserves visibility
         rejectionReasons: errorMsg ? [`Real ${exchange} order failed: ${errorMsg}`] : [],
         conflictNotes: [],
-        cautionNotes: [],
         riskChecks: null,
         stopLoss: null,
         takeProfit: null,
@@ -221,7 +278,13 @@ export function SupervisorProvider({ children }: { children: React.ReactNode }) 
         ensembleConfidencePct: null,
         debateRecommendation: null,
         debateConfidencePct: null,
-        rationale: exchangeOrderId ? `Real ${exchange} order ${exchangeOrderId} confirmed.` : params.rationale,
+        rationale: [
+          exchangeOrderId ? `Real ${exchange} order ${exchangeOrderId} confirmed.` : params.rationale,
+          executionNote,
+        ]
+          .filter(Boolean)
+          .join(' '),
+        cautionNotes: executionNote ? [executionNote] : [],
       }),
     }).catch(() => {});
   }
@@ -235,9 +298,32 @@ export function SupervisorProvider({ children }: { children: React.ReactNode }) 
   // if the order was rejected. Never throws into the caller — this runs
   // detached from the synchronous reviewAndExecute call that kicked it off.
   async function submitRealOrderAsync(exchange: 'binance' | 'bybit', params: SupervisorExecuteParams) {
+    // Deterministic idempotency key (spec Section 19). Derived from the
+    // caller's stable intent id when supplied, otherwise from the
+    // request's own defining fields — either way the SAME logical order
+    // produces the SAME key, so the exchange itself rejects a duplicate
+    // if a retry ever races a lost response.
+    const intentId = params.intentId ?? `${params.tab}:${params.symbol}:${params.side}:${params.qty}:${params.price}`;
+    const clientOrderId = buildClientOrderId(intentId);
+    const submittedAtMs = Date.now();
     try {
-      const result = await placeRealOrder(exchange, { symbol: params.symbol, side: params.side, qty: params.qty });
+      const result = await placeRealOrder(exchange, { symbol: params.symbol, side: params.side, qty: params.qty, clientOrderId });
       if (!result.ok) {
+        // A duplicate-id rejection is NOT a failure — with a
+        // deterministic key it proves our earlier attempt already
+        // reached the exchange, so no duplicate was created. Reported as
+        // such rather than as an error the operator needs to act on.
+        if (isDuplicateOrderError(result.error)) {
+          console.warn(`Real ${exchange} order for ${params.symbol} was already submitted (idempotency key ${clientOrderId}) — not retried, no duplicate created.`);
+          logRealOrderFollowup(
+            params,
+            exchange,
+            'approved-not-executed',
+            undefined,
+            `Duplicate suppressed by idempotency key ${clientOrderId} — a prior attempt for this same intent already reached the exchange. Verify the fill in the exchange's own order history.`,
+          );
+          return;
+        }
         console.error(`Real ${exchange} order failed for ${params.symbol}:`, result.error);
         logRealOrderFollowup(params, exchange, 'rejected', undefined, result.error);
         return;
@@ -258,11 +344,84 @@ export function SupervisorProvider({ children }: { children: React.ReactNode }) 
       } else {
         removeRealPosition(params.symbol, fillPrice, result.exchangeOrderId);
       }
-      logRealOrderFollowup(params, exchange, 'approved-executed', result.exchangeOrderId);
+      // Execution quality (spec Sections 19/22.4): measured against what
+      // was REQUESTED, so a bad fill is distinguishable from a bad
+      // signal. Written into the audit trail so the Evaluation layer and
+      // any later review can see it — a losing trade that filled 0.8%
+      // adverse is a different problem from one whose thesis was wrong.
+      const quality = computeExecutionQuality({
+        side: params.side,
+        requestedPrice: params.price,
+        fillPrice: avgFillPrice,
+        filledQty,
+        submittedAtMs,
+        confirmedAtMs: Date.now(),
+      });
+      logRealOrderFollowup(
+        params,
+        exchange,
+        'approved-executed',
+        result.exchangeOrderId,
+        undefined,
+        `Execution quality — ${describeExecutionQuality(quality)}. ${quality.notes.join(' ')}`,
+      );
     } catch (err) {
       console.error(`Real ${exchange} order threw for ${params.symbol}:`, err);
       logRealOrderFollowup(params, exchange, 'rejected', undefined, err instanceof Error ? err.message : 'unknown error');
     }
+  }
+
+  // Collaboration Protocol (Section 16) — fire-and-forget, same idiom as
+  // submitRealOrderAsync above: a second model's response takes real
+  // seconds, and the trade decision this was triggered by has already
+  // been made (Debate + Ensemble + Risk, all already built) by the time
+  // this resolves. It NEVER re-executes, cancels, or otherwise touches
+  // the trade — the audit record it appends is the only effect. Never
+  // throws into the caller.
+  async function requestCollaborationOpinion(input: CollaborationRequestInput) {
+    if (!secondOpinionProviderObj) return;
+    const id = uid();
+    let opinion = null;
+    let error: string | null = null;
+    try {
+      const messages = buildCollaborationMessages(input);
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey: secondOpinionResolvedApiKey,
+          baseUrl: secondOpinionResolvedBaseUrl || undefined,
+          model: secondOpinionResolvedModel,
+          messages,
+          temperature: 0.2,
+          maxTokens: 250,
+        }),
+      });
+      if (!res.ok || !res.body) throw new Error('second-opinion request failed');
+      let content = '';
+      await readSSEStream(res.body, (delta) => {
+        content += delta;
+      });
+      opinion = parseCollaborationResponse(content.trim());
+      if (!opinion) error = 'response did not follow the expected RECOMMENDATION/CONFIDENCE/REASONING format';
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'unknown error';
+    }
+    fetch('/api/collaboration', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id,
+        symbol: input.symbol,
+        side: input.side,
+        ownConfidencePct: input.ownConfidencePct,
+        triggerReason: input.conflicts.join('; '),
+        provider: secondOpinionProviderObj.id,
+        model: secondOpinionResolvedModel,
+        opinion,
+        error,
+      }),
+    }).catch(() => {});
   }
 
   function executeApprovedRequest(params: { symbol: string; side: TradeSide; tab: TradeTab; qty: number; price: number; originTag: NonNullable<TradeLogEntry['originTag']>; entryContext?: string; debateId?: string }) {
@@ -282,7 +441,33 @@ export function SupervisorProvider({ children }: { children: React.ReactNode }) 
     const item: WatchItem = watchlist.find((w) => w.symbol === params.symbol) ?? { symbol: params.symbol, type: params.symbol.includes('/') ? 'crypto' : 'equity' };
     const ctx = getStrategyContextFor(item);
 
-    const debate = getLatestDebate(params.symbol);
+    // Ask another agent for help when this one doesn't already have a
+    // recent opinion: previously, an AI-initiated BUY only ever
+    // consulted the Debate System if a human happened to have clicked
+    // "Run Debate" on this exact symbol within the last 10 minutes
+    // (components/Debate.tsx's DEBATE_FRESHNESS_MS) — otherwise
+    // debateRecommendation was just null and the Supervisor decided
+    // alone. runFullDebate is a deterministic computation over data
+    // already on hand (no LLM call, no network round-trip — see
+    // lib/debate/moderator.ts's header comment), so there's no reason
+    // the Supervisor can't just run it itself right here for every
+    // autonomous buy that doesn't already have a fresh read, the same
+    // way a trader would ask a colleague for a second opinion before
+    // sizing up a position. Sells/closes never need this — closing risk
+    // is never blocked regardless of what Debate says (see
+    // lib/supervisorAgent.ts's resolveConflicts).
+    let debate = getLatestDebate(params.symbol);
+    if (!debate && params.side === 'buy' && ctx) {
+      const primary = getCandles(params.symbol, '1h');
+      if (primary && primary.candles.length > 0) {
+        const cap = checkCapability(item, 'fundingRate');
+        const derivatives = cap.supported ? getDerivatives(item.symbol) : undefined;
+        const fearGreed = item.type === 'crypto' ? getFearGreed() : undefined;
+        const sentiment = computeSentiment(item.symbol, getNews(), derivatives ?? null, fearGreed ?? null);
+        const { id, result } = runDebateSync({ symbol: params.symbol, ctx, sentiment, liveCandles: primary.candles });
+        debate = { id, result, ts: Date.now() };
+      }
+    }
     const debateRecommendation = debate
       ? {
           recommendation: debate.result.moderator.recommendation,
@@ -290,7 +475,12 @@ export function SupervisorProvider({ children }: { children: React.ReactNode }) 
           supportingEvidence: debate.result.moderator.supportingEvidence,
         }
       : null;
-    const ensemble = ctx ? runStrategyEnsemble(ctx, getSnapshot(params.symbol) ?? null) : null;
+    // Link this trade to whichever debate backed the decision — a
+    // caller-supplied one (e.g. the Debate panel's "Act on this") takes
+    // priority; otherwise the auto-run above still lets the outcome
+    // win/loss tracking in components/Debate.tsx apply to this trade too.
+    if (!params.debateId && debate) params.debateId = debate.id;
+    const ensemble = ctx ? runStrategyEnsembleGated(ctx, getSnapshot(params.symbol) ?? null) : null;
     const ensembleConsensus = ensemble ? { signal: ensemble.consensus, confidencePct: ensemble.confidencePct } : null;
 
     const request: SupervisorRequest = {
@@ -299,10 +489,10 @@ export function SupervisorProvider({ children }: { children: React.ReactNode }) 
       tab: params.tab,
       qty: params.qty,
       ctx,
-      equityUsd: params.tab === 'paper' ? paperEquityUsd() : null,
+      equityUsd: params.tab === 'paper' ? paperEquityUsd() : realEquityUsd(),
       tradeLog,
       requestedLeverage: params.requestedLeverage,
-      existingExposureUsd: params.tab === 'paper' ? paperExistingExposureUsd() : null,
+      existingExposureUsd: params.tab === 'paper' ? paperExistingExposureUsd() : realExistingExposureUsd(),
       newsHeadlines: getNews(),
       correlationInputs: params.tab === 'paper' && params.side === 'buy' ? correlationInputsFor(params.symbol) : null,
       originTag: params.originTag,
@@ -312,11 +502,31 @@ export function SupervisorProvider({ children }: { children: React.ReactNode }) 
       ensembleConsensus,
       debateRecommendation,
       riskConfig,
+      realStartingEquityUsd: params.tab === 'real' ? realStartingCapitalUsd : null,
+      // Same events that become caution notes below — passed in so they
+      // also shift the Bayesian posterior, rather than only appearing as
+      // prose the reader has to weigh themselves.
+      eventNotes: getEvents(params.symbol).map((e) => ({ kind: e.kind, severity: e.severity })),
       // Phase 22: Mission alignment
       missionAlignment: getMissionAlignment({ symbol: params.symbol, side: params.side, qty: params.qty, price: params.price, leverage: params.requestedLeverage }),
     };
 
     const decision = reviewTradeRequest(request);
+
+    // Event Detection (Level 16) previously only ever reached the chat
+    // system prompt — a detected liquidation cascade or volatility
+    // explosion never touched an autonomous decision at all, even
+    // though the model reading it in chat context has no ability to
+    // stop an agent-plan or signal-gated trade from executing. Surfaced
+    // here as a caution note (never a rejection — these events "often
+    // precede significant moves but are not trade signals on their
+    // own," per lib/eventDetection.ts's own chat framing, so a real risk
+    // check still has to be the thing that actually blocks something).
+    if (params.side === 'buy') {
+      for (const evt of getEvents(params.symbol)) {
+        decision.cautionNotes.push(`Event Detection [${evt.severity.toUpperCase()}] ${evt.kind}: ${evt.detail}`);
+      }
+    }
 
     // Human-in-the-loop pause (Production Readiness Review #17): blocks
     // NEW buys only — never sells/closes, same "never block an exit"
@@ -327,6 +537,31 @@ export function SupervisorProvider({ children }: { children: React.ReactNode }) 
     if (params.side === 'buy' && paused && decision.approved) {
       decision.approved = false;
       decision.reasons = [...decision.reasons, 'Trading is paused by the operator (Trading Controls) — no new positions until resumed.'];
+    }
+
+    // Collaboration Protocol (Section 16): ask a genuinely separate,
+    // human-configured model for an independent read whenever this
+    // decision's own internal signals were low-confidence or
+    // conflicting — the exact trigger the spec names. Only for approved
+    // buys (a rejected trade isn't about to risk anything, and closes
+    // are never gated in this app regardless). Fire-and-forget — see
+    // requestCollaborationOpinion's own comment for why it must never
+    // delay this decision.
+    if (params.side === 'buy' && decision.approved && secondOpinionConfigured) {
+      const conflicts = [...decision.conflictNotes];
+      const compositeConfidencePct = debateRecommendation?.compositeConfidencePct;
+      if (compositeConfidencePct !== undefined && compositeConfidencePct < 55) {
+        conflicts.push(`Debate composite confidence only ${compositeConfidencePct.toFixed(0)}%`);
+      }
+      if (conflicts.length > 0) {
+        requestCollaborationOpinion({
+          symbol: params.symbol,
+          side: params.side,
+          ownConfidencePct: compositeConfidencePct ?? 50,
+          ownReasoning: decision.explainable?.reasonBullets?.map((b) => b.text) ?? [],
+          conflicts,
+        });
+      }
     }
 
     let executed = false;

@@ -3,9 +3,14 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { loadLS, saveLS } from '@/lib/storage';
 import { buildResearchDigest, type ResearchDigest } from '@/lib/autonomousResearch';
+import { buildCuriosityDigest, type CuriosityDigest, type SignalConflict, type ContradictedHolding } from '@/lib/curiosityEngine';
+import { buildStrategyContext } from '@/lib/strategyContext';
+import { runStrategyEnsembleGated } from '@/lib/strategyEnsemble';
 import type { Candle } from '@/lib/indicators';
 import { useMarketData } from './MarketData';
 import { useCandles } from './Candles';
+import { useOrderFlow } from './OrderFlow';
+import { useMultiExchange } from './MultiExchange';
 import { useEventDetection } from './EventDetection';
 import { usePortfolio } from './Portfolio';
 
@@ -32,6 +37,11 @@ const MAX_HISTORY = 20;
 type AutonomousResearchValue = {
   latestDigest: ResearchDigest | null;
   history: ResearchDigest[];
+  // Curiosity Engine (spec Section 15). Computed on the same unprompted
+  // timer as the research digest — the spec says hourly; running it on
+  // the existing 15-minute cadence is strictly more current and costs
+  // nothing extra (it's pure computation over already-cached data).
+  latestCuriosity: CuriosityDigest | null;
   runNow: () => void;
 };
 
@@ -44,12 +54,15 @@ export function useAutonomousResearch(): AutonomousResearchValue {
 }
 
 export function AutonomousResearchProvider({ children }: { children: React.ReactNode }) {
-  const { watchlist } = useMarketData();
+  const { watchlist, ticks } = useMarketData();
   const { getCandles } = useCandles();
+  const { getOrderFlow } = useOrderFlow();
+  const { getSnapshot } = useMultiExchange();
   const { getAllEvents } = useEventDetection();
-  const { tradeLog } = usePortfolio();
+  const { tradeLog, getPortfolioSnapshot } = usePortfolio();
 
   const [history, setHistory] = useState<ResearchDigest[]>([]);
+  const [curiosity, setCuriosity] = useState<CuriosityDigest | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
   // Same ref-freshness pattern as components/Agent.tsx's scheduler —
@@ -64,6 +77,14 @@ export function AutonomousResearchProvider({ children }: { children: React.React
   getAllEventsRef.current = getAllEvents;
   const tradeLogRef = useRef(tradeLog);
   tradeLogRef.current = tradeLog;
+  const getOrderFlowRef = useRef(getOrderFlow);
+  getOrderFlowRef.current = getOrderFlow;
+  const getSnapshotRef = useRef(getSnapshot);
+  getSnapshotRef.current = getSnapshot;
+  const getPortfolioSnapshotRef = useRef(getPortfolioSnapshot);
+  getPortfolioSnapshotRef.current = getPortfolioSnapshot;
+  const ticksRef = useRef(ticks);
+  ticksRef.current = ticks;
 
   useEffect(() => {
     setHistory(loadLS<ResearchDigest[]>(LS_DIGEST_HISTORY, []));
@@ -83,6 +104,52 @@ export function AutonomousResearchProvider({ children }: { children: React.React
     }
     const digest = buildResearchDigest(wl, candles, getAllEventsRef.current(), tradeLogRef.current, Date.now());
     setHistory((prev) => [...prev, digest].slice(-MAX_HISTORY));
+
+    // --- Curiosity Engine inputs, computed from the same already-cached
+    // data. A symbol without enough history simply isn't included —
+    // never guessed at, so "nothing to say" stays distinguishable from
+    // "nothing is wrong".
+    const conflicts: SignalConflict[] = [];
+    const heldSymbols = new Set<string>();
+    const portfolio = getPortfolioSnapshotRef.current();
+    for (const p of [...portfolio.paper.positions, ...portfolio.real.positions]) heldSymbols.add(p.symbol);
+    const contradicted: ContradictedHolding[] = [];
+
+    for (const item of wl) {
+      const primary = getCandlesRef.current(item.symbol, '1h');
+      if (!primary || primary.candles.length === 0) continue;
+      const ctx = buildStrategyContext(item, primary.candles, getCandlesRef.current, getOrderFlowRef.current(item.symbol));
+      if (!ctx) continue;
+      const ensemble = runStrategyEnsembleGated(ctx, getSnapshotRef.current(item.symbol) ?? null);
+
+      conflicts.push({
+        symbol: item.symbol,
+        ensembleSays: ensemble.consensus,
+        ensembleConfidencePct: ensemble.confidencePct,
+        structureSays: ctx.structure.currentTrend,
+      });
+
+      // Every position this app can hold is long-only (spot) — see
+      // REAL_TRADING.md's scope note — so an opposing read means the
+      // ensemble now says SELL.
+      if (heldSymbols.has(item.symbol)) {
+        contradicted.push({
+          symbol: item.symbol,
+          side: 'long',
+          ensembleNowSays: ensemble.consensus,
+          ensembleConfidencePct: ensemble.confidencePct,
+        });
+      }
+    }
+
+    setCuriosity(
+      buildCuriosityDigest({
+        tradeLog: tradeLogRef.current,
+        signalConflicts: conflicts,
+        contradictedHoldings: contradicted,
+        ts: Date.now(),
+      }),
+    );
   }
   const runNowRef = useRef(runNow);
   runNowRef.current = runNow;
@@ -102,6 +169,7 @@ export function AutonomousResearchProvider({ children }: { children: React.React
   const value: AutonomousResearchValue = {
     latestDigest: history.length > 0 ? history[history.length - 1] : null,
     history,
+    latestCuriosity: curiosity,
     runNow: () => runNowRef.current(),
   };
 

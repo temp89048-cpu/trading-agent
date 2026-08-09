@@ -85,6 +85,13 @@ export async function placeMarketOrder(creds: ExchangeCredentials, params: Place
     side: params.side.toUpperCase(),
     type: 'MARKET',
     quantity: qty,
+    // Idempotency: Binance rejects a second order reusing the same
+    // newClientOrderId with -2010 "Duplicate order sent", which is
+    // exactly the protection a retry needs. Omitted entirely when the
+    // caller didn't supply one, so Binance falls back to generating its
+    // own (previous behavior) rather than us inventing a key that
+    // wouldn't be stable across retries anyway.
+    ...(params.clientOrderId ? { newClientOrderId: params.clientOrderId } : {}),
   });
   if (!result.ok) return { ok: false, error: result.error, raw: result.raw };
   const json = result.json;

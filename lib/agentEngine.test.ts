@@ -170,6 +170,89 @@ describe('agentTick — volatility-adaptive (ATR) stops', () => {
   });
 });
 
+describe('agentTick — thesis invalidation (continuous monitoring)', () => {
+  const openLeg = { currentEntryPrice: 100, currentQty: 1 };
+
+  it('closes an open leg fully when the thesis is invalidated, mid-range', () => {
+    // Price sits between TP and SL — nothing would normally fire.
+    const task = baseTask(openLeg);
+    expect(agentTick(task, NOW, 101).action).toBe('none');
+
+    const result = agentTick(task, NOW, 101, undefined, undefined, { invalidated: true, reason: 'ensemble flipped' });
+    expect(result.action).toBe('close');
+    if (result.action !== 'close') throw new Error('unreachable');
+    expect(result.thesisInvalidated).toBe(true);
+    expect(result.qty).toBe(1); // full close, not partial
+    expect(result.scaleOutLevelIndex).toBeUndefined();
+  });
+
+  it('computes P&L correctly on a thesis exit taken at a loss', () => {
+    const task = baseTask(openLeg);
+    const result = agentTick(task, NOW, 98, undefined, undefined, { invalidated: true, reason: 'x' });
+    if (result.action !== 'close') throw new Error('expected close');
+    expect(result.pnl).toBeCloseTo(-2, 5);
+  });
+
+  it('computes P&L correctly on a thesis exit taken in profit', () => {
+    const task = baseTask(openLeg);
+    const result = agentTick(task, NOW, 103, undefined, undefined, { invalidated: true, reason: 'x' });
+    if (result.action !== 'close') throw new Error('expected close');
+    expect(result.pnl).toBeCloseTo(3, 5);
+  });
+
+  it('mirrors correctly for a short position', () => {
+    const task = baseTask({ ...openLeg, side: 'sell' });
+    const result = agentTick(task, NOW, 97, undefined, undefined, { invalidated: true, reason: 'x' });
+    if (result.action !== 'close') throw new Error('expected close');
+    expect(result.pnl).toBeCloseTo(3, 5); // short profits as price falls
+  });
+
+  it('takes precedence over a scale-out level that would otherwise fire', () => {
+    // 4% move would hit the first scale-out level, but the thesis is gone
+    // — a full exit must win over partial profit-taking.
+    const task = baseTask({ ...openLeg, scaleOutLevels: [{ tpPercent: 3, closeFraction: 0.5 }] });
+    const partial = agentTick(task, NOW, 104);
+    if (partial.action !== 'close') throw new Error('expected scale-out close');
+    expect(partial.scaleOutLevelIndex).toBe(0); // confirms the level really was in range
+
+    const result = agentTick(task, NOW, 104, undefined, undefined, { invalidated: true, reason: 'x' });
+    if (result.action !== 'close') throw new Error('expected close');
+    expect(result.thesisInvalidated).toBe(true);
+    expect(result.scaleOutLevelIndex).toBeUndefined(); // full exit, not the partial
+    expect(result.qty).toBe(1);
+  });
+
+  it('does nothing extra when the thesis is explicitly still valid', () => {
+    const task = baseTask(openLeg);
+    expect(agentTick(task, NOW, 101, undefined, undefined, { invalidated: false, reason: '' }).action).toBe('none');
+  });
+
+  it('leaves normal TP/SL behavior completely unchanged when no thesis context is passed', () => {
+    const task = baseTask(openLeg);
+    const tp = agentTick(task, NOW, 106);
+    if (tp.action !== 'close') throw new Error('expected TP close');
+    expect(tp.thesisInvalidated).toBeUndefined();
+
+    const sl = agentTick(task, NOW, 96);
+    if (sl.action !== 'close') throw new Error('expected SL close');
+    expect(sl.thesisInvalidated).toBeUndefined();
+  });
+
+  it('does not open a NEW leg on an invalidated thesis (only affects open legs)', () => {
+    // No open leg — a take-profit task would normally open here. The
+    // thesis check must not hijack that path.
+    const task = baseTask();
+    const result = agentTick(task, NOW, 100, undefined, undefined, { invalidated: true, reason: 'x' });
+    expect(result.action).toBe('open');
+  });
+
+  it('applies to conditional-watch tasks with an open leg too', () => {
+    const task = baseTask({ ...openLeg, mode: 'conditional-watch', planStage: 'watch' });
+    const result = agentTick(task, NOW, 101, undefined, undefined, { invalidated: true, reason: 'x' });
+    expect(result.action).toBe('close');
+  });
+});
+
 describe('agentTick — lifecycle guards', () => {
   it('reports complete once executedTrades reaches totalTrades', () => {
     const task = baseTask({ executedTrades: 5, totalTrades: 5 });

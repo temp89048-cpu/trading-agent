@@ -7,6 +7,21 @@ import { evaluatePlanCondition, type PlanSnapshot } from './plannerAgent';
 // useAtrStops set.
 export type VolatilityContext = { atrPercent: number };
 
+// The Continuous Monitoring Loop's "is my prediction still valid? should
+// I exit?" question (spec Section 14), made into a real input rather than
+// a rhetorical one. Computed by the caller (components/Agent.tsx) from
+// the live Strategy Ensemble, since agentTick itself has no market-data
+// access and stays pure. Only consulted when a task explicitly opts in
+// via exitOnThesisInvalidation — omitting it reproduces the exact
+// pre-existing TP/SL/trailing behavior for every existing task.
+export type ThesisContext = { invalidated: boolean; reason: string };
+
+// How strongly the ensemble must have flipped against an open position
+// before its thesis counts as invalidated. Deliberately high: exiting on
+// a weak or noisy opposing read would churn out of good trades, which
+// costs more over time than occasionally riding a broken one to its stop.
+export const DEFAULT_THESIS_EXIT_CONFIDENCE_PCT = 70;
+
 const DEFAULT_ATR_TP_MULTIPLIER = 2;
 const DEFAULT_ATR_SL_MULTIPLIER = 1;
 export const DEFAULT_SIGNAL_CONFIRM_ENSEMBLE_PCT = 55;
@@ -15,8 +30,26 @@ export type AgentTickResult =
   | { action: 'none'; patch?: Partial<AgentTask> } // patch: bookkeeping-only state (e.g. trailing-stop peak) with no side effect to execute
   | { action: 'stage'; planStage: PlanStage } // conditional-watch only: trigger fired, now arm the watch stage
   | { action: 'open'; qty: number; price: number; marginUsed: number }
-  | { action: 'close'; qty: number; price: number; entryPrice: number; pnl: number; scaleOutLevelIndex?: number } // scaleOutLevelIndex set = a PARTIAL close (qty is only the closed fraction, the leg continues); unset = a full close
+  | { action: 'close'; qty: number; price: number; entryPrice: number; pnl: number; scaleOutLevelIndex?: number; thesisInvalidated?: boolean } // scaleOutLevelIndex set = a PARTIAL close (qty is only the closed fraction, the leg continues); unset = a full close. thesisInvalidated set = this exit was driven by the thesis check, not TP/SL — surfaced so the caller can label it accurately.
   | { action: 'complete' };
+
+// Unrealized P&L for the currently-open leg of a take-profit/
+// conditional-watch task, marked-to-market against a live tick price —
+// same formula checkOpenLegTick below uses to compute the REALIZED pnl
+// once TP/SL actually fires, just evaluated against the live price
+// instead of waiting for a close. pctMove mirrors the same plain
+// price-move percent tpPercent/slPercent are already defined in (not a
+// leveraged ROI%), so it's directly comparable to "watching for
+// {tpPercent}% move". Exported so every UI surface that shows a live
+// P&L (AgentPanel, the header ticker) computes it identically.
+export function computeLiveUnrealizedPnl(task: AgentTask, livePrice: number): { pnl: number; pctMove: number } {
+  const entry = task.currentEntryPrice!;
+  const qty = task.currentQty!;
+  const sign = task.side === 'buy' ? 1 : -1;
+  const pnl = (livePrice - entry) * qty * sign;
+  const pctMove = sign * ((livePrice - entry) / entry) * 100;
+  return { pnl, pctMove };
+}
 
 function computeMarginUsed(task: AgentTask): number {
   // 'interval' mode uses a fixed margin per leg, not compounding.
@@ -49,12 +82,23 @@ function effectiveTpSl(task: AgentTask, volCtx: VolatilityContext | undefined): 
   return { tp: task.tpPercent, sl: task.slPercent };
 }
 
-function checkOpenLegTick(task: AgentTask, livePrice: number, volCtx: VolatilityContext | undefined): AgentTickResult {
+function checkOpenLegTick(task: AgentTask, livePrice: number, volCtx: VolatilityContext | undefined, thesis?: ThesisContext): AgentTickResult {
   if (task.currentEntryPrice === undefined || task.currentQty === undefined) return { action: 'none' };
   const entry = task.currentEntryPrice;
   const qty = task.currentQty;
   const sign = task.side === 'buy' ? 1 : -1;
   const pnlPct = sign * ((livePrice - entry) / entry) * 100;
+
+  // Thesis invalidation is checked FIRST — before scale-out and before
+  // TP/SL. "The reason I entered no longer holds" dominates
+  // profit-taking mechanics: scaling out partially and waiting for the
+  // next tick to fully exit would leave real exposure on a position
+  // whose premise is already gone, and in a fast market a tick is not
+  // free. A full close either way, at whatever the current P&L is.
+  if (thesis?.invalidated) {
+    const pnl = (livePrice - entry) * qty * sign;
+    return { action: 'close', qty, price: livePrice, entryPrice: entry, pnl, thesisInvalidated: true };
+  }
 
   // Scale-out levels are checked BEFORE the full TP/SL/trailing exits
   // below, in order, and each fires at most once (scaledOutLevels
@@ -121,6 +165,7 @@ export function agentTick(
   livePrice: number | undefined,
   snapshot?: PlanSnapshot,
   volCtx?: VolatilityContext,
+  thesis?: ThesisContext,
 ): AgentTickResult {
   if (task.status !== 'running') return { action: 'none' };
   if (task.executedTrades >= task.totalTrades) return { action: 'complete' };
@@ -135,7 +180,7 @@ export function agentTick(
     if (task.currentEntryPrice === undefined || task.currentQty === undefined) {
       return openResult(task, livePrice);
     }
-    return checkOpenLegTick(task, livePrice, volCtx);
+    return checkOpenLegTick(task, livePrice, volCtx, thesis);
   }
 
   // 'conditional-watch' mode
@@ -143,7 +188,7 @@ export function agentTick(
     // A leg is already open — behaves exactly like take-profit's close
     // check from here (same tpPercent/slPercent/trailing/scale-out
     // fields, once entered).
-    return checkOpenLegTick(task, livePrice, volCtx);
+    return checkOpenLegTick(task, livePrice, volCtx, thesis);
   }
 
   const stage: PlanStage = task.planStage ?? 'trigger';

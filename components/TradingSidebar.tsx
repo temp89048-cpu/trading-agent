@@ -30,6 +30,7 @@ import { TradingControlsPanel } from './TradingControlsPanel';
 import { ExchangeConnectionsPanel } from './ExchangeConnectionsPanel';
 import { AgentOSPanel } from './AgentOSPanel';
 import { MissionPlannerPanel } from './MissionPlannerPanel';
+import { AutonomousTraderPanel } from './AutonomousTraderPanel';
 import { useMarketData } from './MarketData';
 import { useMcp } from './Mcp';
 import { loadLS, saveLS, LS_KEYS } from '@/lib/storage';
@@ -161,9 +162,12 @@ export function TradingSidebar({ onClose }: { onClose?: () => void }) {
           </SectionBlock>
         </CollapsibleGroup>
 
-        <CollapsibleGroup id="strategy" title="Strategy & AI" icon="terminal" count={7}>
+        <CollapsibleGroup id="strategy" title="Strategy & AI" icon="terminal" count={8}>
           <SectionBlock title="Mission Planner" icon="cpu">
             <MissionPlannerPanel />
+          </SectionBlock>
+          <SectionBlock title="Autonomous Trader" icon="cpu">
+            <AutonomousTraderPanel />
           </SectionBlock>
           <SectionBlock title="Strategy Ensemble" icon="trend-up">
             <StrategyEnsemblePanel />

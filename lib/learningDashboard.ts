@@ -28,6 +28,13 @@ import type { TradeLogEntry } from './types';
 // ---------------------------------------------------------------------
 
 export type ClosedTrade = {
+  // The CLOSING trade-log entry's id. Reflections and hypotheses are
+  // both keyed by this same id (see lib/reflectionStore.server.ts and
+  // lib/hypothesisStore.server.ts, which key off the closing trade), so
+  // exposing it is what lets lib/knowledgeGraph.ts link a round-trip to
+  // its own lesson without re-deriving round-trips a second, possibly
+  // inconsistent way.
+  exitTradeId: string;
   symbol: string;
   tab: string;
   entryTs: number;
@@ -85,6 +92,7 @@ export function reconstructClosedTrades(tradeLog: TradeLogEntry[], reflectedTrad
       if (state.runningQty <= DUST_QTY && t.pnl !== undefined) {
         const { marketCondition, volatilityRegime } = classifyEntryContext(state.entryContext, state.entryPrice);
         closed.push({
+          exitTradeId: t.id,
           symbol: t.symbol,
           tab: t.tab,
           entryTs: state.openedAt,

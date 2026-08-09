@@ -56,6 +56,8 @@ export function MissionPlannerPanel() {
   const [accumMaxCost, setAccumMaxCost] = useState(60000);
   const [cashPct, setCashPct] = useState(60);
   const [cashDays, setCashDays] = useState(14);
+  const [capitalStart, setCapitalStart] = useState(2);
+  const [capitalTarget, setCapitalTarget] = useState(20);
 
   function handleCreate() {
     let target: MissionTarget;
@@ -76,6 +78,9 @@ export function MissionPlannerPanel() {
         break;
       case 'cash-allocation':
         target = { type: 'cash-allocation', targetCashPct: cashPct, timeframeDays: cashDays };
+        break;
+      case 'capital-target':
+        target = { type: 'capital-target', startEquityUsd: capitalStart, targetEquityUsd: capitalTarget };
         break;
     }
 
@@ -379,6 +384,22 @@ export function MissionPlannerPanel() {
             <input type="number" value={cashDays} onChange={(e) => setCashDays(Number(e.target.value))} min={1} step={1}
               className="w-full mt-0.5 text-[10px] font-mono px-2 py-1 rounded border border-line bg-bg2 text-txt0 focus:border-amber outline-none" />
           </label>
+        </>
+      )}
+
+      {selectedType === 'capital-target' && (
+        <>
+          <label className="text-[9px] font-mono text-txt2">
+            Starting capital ($)
+            <input type="number" value={capitalStart} onChange={(e) => setCapitalStart(Number(e.target.value))} min={0.01} step={0.01}
+              className="w-full mt-0.5 text-[10px] font-mono px-2 py-1 rounded border border-line bg-bg2 text-txt0 focus:border-amber outline-none" />
+          </label>
+          <label className="text-[9px] font-mono text-txt2">
+            Target capital ($)
+            <input type="number" value={capitalTarget} onChange={(e) => setCapitalTarget(Number(e.target.value))} min={0.01} step={0.01}
+              className="w-full mt-0.5 text-[10px] font-mono px-2 py-1 rounded border border-line bg-bg2 text-txt0 focus:border-amber outline-none" />
+          </label>
+          <p className="text-[8px] text-txt2">No fixed deadline — a hard time limit on a dollar target pushes toward unsafe risk-taking to hit the number in time. This only ever informs the Supervisor's caution notes, never a hard risk rule.</p>
         </>
       )}
 

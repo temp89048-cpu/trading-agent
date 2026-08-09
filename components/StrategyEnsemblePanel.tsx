@@ -5,7 +5,7 @@ import { useCandles } from './Candles';
 import { useOrderFlow } from './OrderFlow';
 import { useMultiExchange } from './MultiExchange';
 import { buildStrategyContext } from '@/lib/strategyContext';
-import { runStrategyEnsemble, PLANNED_AGENTS } from '@/lib/strategyEnsemble';
+import { runStrategyEnsembleGated, PLANNED_AGENTS } from '@/lib/strategyEnsemble';
 
 export function StrategyEnsemblePanel() {
   const { watchlist } = useMarketData();
@@ -32,7 +32,7 @@ export function StrategyEnsemblePanel() {
           );
         }
 
-        const result = runStrategyEnsemble(ctx, getSnapshot(item.symbol) ?? null);
+        const result = runStrategyEnsembleGated(ctx, getSnapshot(item.symbol) ?? null);
         const color = result.consensus === 'BUY' ? 'text-green' : result.consensus === 'SELL' ? 'text-red' : 'text-txt2';
         const buyCount = result.signals.filter((s) => s.signal === 'BUY').length;
         const sellCount = result.signals.filter((s) => s.signal === 'SELL').length;

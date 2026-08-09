@@ -89,6 +89,66 @@ const VALID_TRANSITIONS: Record<AgentLifecycleState, AgentLifecycleState[]> = {
   recovering: ['ready', 'error', 'stopped'],
 };
 
+// ---------------------------------------------------------------------
+// Agent Contract (engineering spec Section 5).
+//
+// The spec requires every agent to declare a fixed set of contract
+// fields BEFORE it's built — purpose, permissions, failure recovery,
+// what it may and may not touch, and how to tell whether it's healthy.
+// Those fields are declared here rather than only in prose docs for a
+// specific reason: a contract that lives in markdown drifts silently
+// from the code, whereas one that lives in the descriptor is visible in
+// the Agent OS panel, greppable, and type-checked.
+//
+// `permissions` is the field that actually matters for safety review —
+// it states in one place whether an agent can reach execution at all.
+// Anything claiming 'execute-trades' should be treated as a red flag
+// during review unless it is the Supervisor itself.
+// ---------------------------------------------------------------------
+export type AgentPermission =
+  // Read-only analysis. The overwhelming majority of agents.
+  | 'read-market-data'
+  | 'read-trade-log'
+  | 'read-portfolio'
+  // Produces a signal/opinion that something else may act on. Notably
+  // NOT permission to act on it.
+  | 'emit-signal'
+  // Proposes a trade, which must still pass the Supervisor gate.
+  | 'propose-trade'
+  // The single execution authority. Only the Supervisor holds this.
+  | 'execute-trades'
+  // Can veto/reject a proposed trade.
+  | 'veto-trade'
+  // Writes to a persistent store under .data/.
+  | 'write-store'
+  // Calls an external LLM API.
+  | 'call-llm'
+  // Requires an explicit human action before its output takes effect.
+  | 'human-gated';
+
+export type AgentContract = {
+  // One sentence: what this agent exists to do.
+  purpose: string;
+  // What data/events it consumes.
+  inputs: string[];
+  // What it produces.
+  outputs: string[];
+  // Exactly what it is and isn't allowed to touch. See AgentPermission.
+  permissions: AgentPermission[];
+  // What it remembers, and for how long. 'none' is a valid, common answer.
+  memory: string;
+  // What it reports for evaluation.
+  metrics: string[];
+  // What happens if it crashes, times out, or returns garbage. Must
+  // describe safe degradation — never silent failure.
+  failureRecovery: string;
+  // How the system checks whether this agent is alive and sane.
+  healthCheck: string;
+  // How this agent explains its decisions. Non-negotiable per the spec,
+  // and it applies even to agents that look purely mechanical.
+  explainability: string;
+};
+
 export type AgentDescriptor = {
   id: AgentId;
   name: string;
@@ -100,6 +160,10 @@ export type AgentDescriptor = {
   category: AgentCategory;
   priority: number; // lower = higher priority (0 = highest)
   tickIntervalMs: number; // 0 = on-demand only, never auto-scheduled
+  // Optional so descriptors can be filled in incrementally rather than
+  // requiring one big migration — but every agent SHOULD have one, and
+  // contractCoverage() below reports which don't.
+  contract?: AgentContract;
 };
 
 export type AgentHealthRecord = {
@@ -576,4 +640,45 @@ export function resetAgentOS(): void {
     _instance.destroy();
     _instance = null;
   }
+}
+
+// ---------------------------------------------------------------------
+// Contract coverage — the spec says every agent must have a full
+// contract "before it's built." Rather than asserting that's true, this
+// reports which agents actually have one, so the gap is visible in the
+// Agent OS panel instead of quietly assumed closed.
+//
+// Also flags the safety-relevant case: any agent claiming
+// 'execute-trades' that is NOT the Supervisor. Only one execution
+// authority is allowed to exist (see CLAUDE.md's safety invariants), so
+// a second one appearing is a review-stopping finding, not a warning.
+// ---------------------------------------------------------------------
+export const SOLE_EXECUTION_AUTHORITY: AgentId = 'supervisor';
+
+export type ContractCoverage = {
+  total: number;
+  withContract: number;
+  missing: AgentId[];
+  /** Agents claiming execute-trades that shouldn't. Should always be empty. */
+  unexpectedExecutionAuthority: AgentId[];
+};
+
+export function contractCoverage(descriptors: AgentDescriptor[]): ContractCoverage {
+  const missing: AgentId[] = [];
+  const unexpectedExecutionAuthority: AgentId[] = [];
+  for (const d of descriptors) {
+    if (!d.contract) {
+      missing.push(d.id);
+      continue;
+    }
+    if (d.contract.permissions.includes('execute-trades') && d.id !== SOLE_EXECUTION_AUTHORITY) {
+      unexpectedExecutionAuthority.push(d.id);
+    }
+  }
+  return {
+    total: descriptors.length,
+    withContract: descriptors.length - missing.length,
+    missing,
+    unexpectedExecutionAuthority,
+  };
 }

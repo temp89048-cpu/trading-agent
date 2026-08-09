@@ -1,8 +1,9 @@
 'use client';
 
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { loadLS, saveLS, uid, LS_KEYS } from '@/lib/storage';
 import { DEFAULT_RISK_CONFIG, type RiskConfig } from '@/lib/riskManager';
+import { PROVIDERS, type Provider } from '@/lib/constants';
 import type { PendingApproval } from '@/lib/types';
 
 // ---------------------------------------------------------------------
@@ -31,12 +32,36 @@ type TradingControlsPersisted = {
   paused: boolean;
   manualApprovalThresholdUsd: number | null;
   riskConfigOverrides: Partial<RiskConfig>;
+  // A user-declared baseline for the 'real' tab, which otherwise has no
+  // tracked cash/equity at all — every equity-dependent risk check
+  // (checkPositionRisk, checkDailyLoss, checkDrawdown,
+  // checkPortfolioExposure in lib/riskManager.ts) has always silently
+  // read 'unavailable' for real trades because of this. Left at its
+  // default (null) this changes nothing — same 'unavailable' behavior
+  // as before, for anyone who hasn't set it.
+  realStartingCapitalUsd: number | null;
+  // Collaboration Protocol (Section 16) — a genuinely SEPARATE
+  // provider/model from the main chat one in components/AppState.tsx.
+  // Lives here rather than in AppState's Config specifically because
+  // components/Supervisor.tsx (the actual caller) sits ABOVE
+  // AppStateProvider in the tree, for the exact same reason this whole
+  // provider already exists — see the header comment above.
+  // '' provider means "not configured" — the feature no-ops until set.
+  secondOpinionProvider: string;
+  secondOpinionModel: string;
+  secondOpinionApiKeys: Record<string, string>;
+  secondOpinionBaseUrlOverride: string;
 };
 
 const DEFAULT_PERSISTED: TradingControlsPersisted = {
   paused: false,
   manualApprovalThresholdUsd: null,
   riskConfigOverrides: {},
+  realStartingCapitalUsd: null,
+  secondOpinionProvider: '',
+  secondOpinionModel: '',
+  secondOpinionApiKeys: {},
+  secondOpinionBaseUrlOverride: '',
 };
 
 type TradingControlsValue = {
@@ -44,6 +69,22 @@ type TradingControlsValue = {
   setPaused: (v: boolean) => void;
   manualApprovalThresholdUsd: number | null;
   setManualApprovalThresholdUsd: (v: number | null) => void;
+  realStartingCapitalUsd: number | null;
+  setRealStartingCapitalUsd: (v: number | null) => void;
+  // Raw persisted second-opinion fields, for the Settings UI to edit...
+  secondOpinionProvider: string;
+  secondOpinionModel: string;
+  secondOpinionApiKeys: Record<string, string>;
+  secondOpinionBaseUrlOverride: string;
+  setSecondOpinionConfig: (partial: Partial<Pick<TradingControlsPersisted, 'secondOpinionProvider' | 'secondOpinionModel' | 'secondOpinionApiKeys' | 'secondOpinionBaseUrlOverride'>>) => void;
+  // ...and the RESOLVED values (same resolution AppState.tsx already
+  // does for the primary provider) so Supervisor.tsx doesn't need to
+  // duplicate that lookup logic.
+  secondOpinionProviderObj: Provider | null;
+  secondOpinionResolvedModel: string;
+  secondOpinionResolvedApiKey: string;
+  secondOpinionResolvedBaseUrl: string;
+  secondOpinionConfigured: boolean;
   riskConfig: RiskConfig; // effective, merged over DEFAULT_RISK_CONFIG
   riskConfigOverrides: Partial<RiskConfig>;
   setRiskConfigOverride: (partial: Partial<RiskConfig>) => void;
@@ -92,6 +133,14 @@ export function TradingControlsProvider({ children }: { children: React.ReactNod
     setPersisted((p) => ({ ...p, manualApprovalThresholdUsd: v }));
   }
 
+  function setRealStartingCapitalUsd(v: number | null) {
+    setPersisted((p) => ({ ...p, realStartingCapitalUsd: v }));
+  }
+
+  function setSecondOpinionConfig(partial: Partial<Pick<TradingControlsPersisted, 'secondOpinionProvider' | 'secondOpinionModel' | 'secondOpinionApiKeys' | 'secondOpinionBaseUrlOverride'>>) {
+    setPersisted((p) => ({ ...p, ...partial }));
+  }
+
   function setRiskConfigOverride(partial: Partial<RiskConfig>) {
     setPersisted((p) => ({ ...p, riskConfigOverrides: { ...p.riskConfigOverrides, ...partial } }));
   }
@@ -122,11 +171,29 @@ export function TradingControlsProvider({ children }: { children: React.ReactNod
 
   const riskConfig: RiskConfig = { ...DEFAULT_RISK_CONFIG, ...persisted.riskConfigOverrides };
 
+  const secondOpinionProviderObj = useMemo(() => PROVIDERS.find((p) => p.id === persisted.secondOpinionProvider) ?? null, [persisted.secondOpinionProvider]);
+  const secondOpinionResolvedModel = persisted.secondOpinionModel || secondOpinionProviderObj?.models[0] || '';
+  const secondOpinionResolvedBaseUrl = persisted.secondOpinionBaseUrlOverride || secondOpinionProviderObj?.baseUrl || '';
+  const secondOpinionResolvedApiKey = secondOpinionProviderObj ? persisted.secondOpinionApiKeys[secondOpinionProviderObj.id] || '' : '';
+  const secondOpinionConfigured = secondOpinionProviderObj !== null && (!secondOpinionProviderObj.needsKey || !!secondOpinionResolvedApiKey);
+
   const value: TradingControlsValue = {
     paused: persisted.paused,
     setPaused,
     manualApprovalThresholdUsd: persisted.manualApprovalThresholdUsd,
     setManualApprovalThresholdUsd,
+    realStartingCapitalUsd: persisted.realStartingCapitalUsd,
+    setRealStartingCapitalUsd,
+    secondOpinionProvider: persisted.secondOpinionProvider,
+    secondOpinionModel: persisted.secondOpinionModel,
+    secondOpinionApiKeys: persisted.secondOpinionApiKeys,
+    secondOpinionBaseUrlOverride: persisted.secondOpinionBaseUrlOverride,
+    setSecondOpinionConfig,
+    secondOpinionProviderObj,
+    secondOpinionResolvedModel,
+    secondOpinionResolvedApiKey,
+    secondOpinionResolvedBaseUrl,
+    secondOpinionConfigured,
     riskConfig,
     riskConfigOverrides: persisted.riskConfigOverrides,
     setRiskConfigOverride,

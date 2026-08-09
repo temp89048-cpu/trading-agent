@@ -38,6 +38,7 @@ type RequestBody = {
     side?: 'buy' | 'sell';
     qty?: number;
     exchangeOrderId?: string;
+    clientOrderId?: string; // idempotency key — see lib/executionQuality.ts
   };
 };
 
@@ -87,7 +88,14 @@ export async function POST(req: Request) {
       if (!p?.symbol || (p.side !== 'buy' && p.side !== 'sell') || typeof p.qty !== 'number' || p.qty <= 0) {
         return Response.json({ ok: false, error: 'placeOrder needs params: { symbol, side: "buy"|"sell", qty > 0 }' }, { status: 400 });
       }
-      const orderParams: PlaceOrderParams = { symbol: p.symbol, side: p.side, qty: p.qty };
+      const orderParams: PlaceOrderParams = {
+        symbol: p.symbol,
+        side: p.side,
+        qty: p.qty,
+        // Passed straight through — this is the idempotency key the
+        // exchange uses to reject a duplicate retry.
+        ...(typeof p.clientOrderId === 'string' && p.clientOrderId ? { clientOrderId: p.clientOrderId } : {}),
+      };
       const result = await client.placeMarketOrder(creds, orderParams);
       return Response.json(result);
     }
