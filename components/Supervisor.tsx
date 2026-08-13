@@ -93,7 +93,7 @@ type SupervisorValue = {
   // uses, otherwise falls back to the plain ledger entry. Kept here
   // rather than duplicated in the approval UI so there's exactly one
   // place that decides "does this go to a real exchange."
-  executeApprovedRequest: (params: { symbol: string; side: TradeSide; tab: TradeTab; qty: number; price: number; originTag: NonNullable<TradeLogEntry['originTag']>; entryContext?: string; debateId?: string }) => void;
+  executeApprovedRequest: (params: { symbol: string; side: TradeSide; tab: TradeTab; qty: number; price: number; originTag: NonNullable<TradeLogEntry['originTag']>; entryContext?: string; debateId?: string; requestedLeverage?: number }) => void;
 };
 
 const SupervisorContext = createContext<SupervisorValue | null>(null);
@@ -424,14 +424,20 @@ export function SupervisorProvider({ children }: { children: React.ReactNode }) 
     }).catch(() => {});
   }
 
-  function executeApprovedRequest(params: { symbol: string; side: TradeSide; tab: TradeTab; qty: number; price: number; originTag: NonNullable<TradeLogEntry['originTag']>; entryContext?: string; debateId?: string }) {
+  // requestedLeverage is carried through here (rather than dropped) so the
+  // margin actually locked by buyPaper matches the leverage the Supervisor
+  // just validated against the ABSOLUTE_MAX_LEVERAGE ceiling. Omitting it
+  // would silently book a 1x-margin position for a trade approved as
+  // leveraged, understating locked capital in every downstream equity and
+  // exposure calculation.
+  function executeApprovedRequest(params: { symbol: string; side: TradeSide; tab: TradeTab; qty: number; price: number; originTag: NonNullable<TradeLogEntry['originTag']>; entryContext?: string; debateId?: string; requestedLeverage?: number }) {
     const targetExchange = params.tab === 'real' && preferredExchange && isExchangeConnected(preferredExchange) ? preferredExchange : null;
     if (targetExchange) {
       submitRealOrderAsync(targetExchange, params);
       return;
     }
     if (params.tab === 'paper') {
-      buyPaper(params.symbol, params.qty, params.price, params.entryContext, params.debateId, params.originTag);
+      buyPaper(params.symbol, params.qty, params.price, params.requestedLeverage, params.entryContext, params.debateId, params.originTag);
     } else {
       addRealPosition(params.symbol, params.qty, params.price, params.entryContext, params.debateId, params.originTag);
     }
@@ -619,7 +625,7 @@ export function SupervisorProvider({ children }: { children: React.ReactNode }) 
         } else {
           executed =
             params.tab === 'paper'
-              ? buyPaper(params.symbol, params.qty, params.price, params.entryContext, params.debateId, params.originTag)
+              ? buyPaper(params.symbol, params.qty, params.price, params.requestedLeverage, params.entryContext, params.debateId, params.originTag)
               : (addRealPosition(params.symbol, params.qty, params.price, params.entryContext, params.debateId, params.originTag), true);
         }
       } else {

@@ -13,6 +13,8 @@ import { createContext, useContext, useEffect, useRef, useState, useCallback } f
 import { usePortfolio } from './Portfolio';
 import { useMarketData } from './MarketData';
 import { uid } from '@/lib/storage';
+
+const API_BASE = 'http://localhost:8000';
 import {
   evaluateMission,
   scoreMissionAlignment,
@@ -73,7 +75,7 @@ export function MissionPlannerProvider({ children }: { children: React.ReactNode
 
   // Load missions from server on mount
   useEffect(() => {
-    fetch('/api/missions')
+    fetch(`${API_BASE}/api/missions`)
       .then((r) => r.json())
       .then((data: Mission[]) => {
         setMissions(data);
@@ -155,7 +157,7 @@ export function MissionPlannerProvider({ children }: { children: React.ReactNode
       if (newStatus !== 'active') {
         const updated = { ...active, status: newStatus, updatedAt: Date.now() };
         setMissions((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
-        fetch('/api/missions', {
+        fetch(`${API_BASE}/api/missions`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: updated.id, status: newStatus }),
@@ -180,7 +182,7 @@ export function MissionPlannerProvider({ children }: { children: React.ReactNode
       setMissions((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
 
       // Persist (fire-and-forget)
-      fetch('/api/missions', {
+      fetch(`${API_BASE}/api/missions`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: updated.id, progress: updated.progress, checkpoints: updated.checkpoints, status: updated.status }),
@@ -234,13 +236,13 @@ export function MissionPlannerProvider({ children }: { children: React.ReactNode
 
     // Persist all changes
     for (const m of deactivated.filter((dm) => dm.status === 'paused')) {
-      fetch('/api/missions', {
+      fetch(`${API_BASE}/api/missions`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: m.id, status: 'paused' }),
       }).catch(() => {});
     }
-    fetch('/api/missions', {
+    fetch(`${API_BASE}/api/missions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(mission),
@@ -249,7 +251,7 @@ export function MissionPlannerProvider({ children }: { children: React.ReactNode
 
   function updateMissionStatus(id: string, status: MissionStatus) {
     setMissions((prev) => prev.map((m) => (m.id === id ? { ...m, status, updatedAt: Date.now() } : m)));
-    fetch('/api/missions', {
+    fetch(`${API_BASE}/api/missions`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, status }),
@@ -258,7 +260,7 @@ export function MissionPlannerProvider({ children }: { children: React.ReactNode
 
   function handleDeleteMission(id: string) {
     setMissions((prev) => prev.filter((m) => m.id !== id));
-    fetch(`/api/missions?id=${id}`, { method: 'DELETE' }).catch(() => {});
+    fetch(`${API_BASE}/api/missions?id=${id}`, { method: 'DELETE' }).catch(() => {});
   }
 
   function getMissionAlignment(trade: {

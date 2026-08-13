@@ -3,12 +3,45 @@
 import Link from 'next/link';
 import { usePortfolio } from './Portfolio';
 import { Icon } from './Icon';
+import { useEffect, useState } from 'react';
+import { useAgentOS } from '@/lib/useAgentOS';
 
 const SIDEBAR_PREVIEW_COUNT = 5;
 
 export function TradeLogPanel({ tab }: { tab: 'paper' | 'real' }) {
-  const { tradeLog, deleteTradeLogEntry } = usePortfolio();
-  const rows = tradeLog.filter((t) => t.tab === tab).sort((a, b) => b.ts - a.ts);
+  const { deleteTradeLogEntry } = usePortfolio();
+  const { events } = useAgentOS();
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchTrades = async () => {
+    try {
+      const res = await fetch(`http://localhost:8000/api/trades?tab=${tab}&limit=${SIDEBAR_PREVIEW_COUNT}`);
+      const data = await res.json();
+      if (data.status === 'success') {
+        setRows(data.trades);
+      }
+    } catch (e) {
+      console.error('Failed to fetch trades', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTrades();
+  }, [tab]);
+
+  // Refetch when an ORDER_FILLED event arrives
+  useEffect(() => {
+    if (events.length > 0 && events[0].event_type === 'ORDER_FILLED') {
+      fetchTrades();
+    }
+  }, [events]);
+
+  if (loading) {
+    return <p className="text-[11px] text-txt2">Loading {tab} trades from DB...</p>;
+  }
 
   if (rows.length === 0) {
     return <p className="text-[11px] text-txt2">No {tab} trades logged yet — buy/sell (or add/remove a ledger row) to see it here.</p>;

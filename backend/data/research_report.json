@@ -1,0 +1,40 @@
+{
+    "last_updated": "2026-08-12T17:40:44.801912",
+    "trending_coins": [
+        {
+            "symbol": "USDCUSDT",
+            "change_24h": "0.02%",
+            "volume": "$1,412,915,671",
+            "mtf_trend": "Mixed",
+            "discovered_setup": "None"
+        },
+        {
+            "symbol": "BTCUSDT",
+            "change_24h": "-0.08%",
+            "volume": "$853,868,144",
+            "mtf_trend": "Mixed",
+            "discovered_setup": "None"
+        },
+        {
+            "symbol": "ETHUSDT",
+            "change_24h": "1.38%",
+            "volume": "$344,920,544",
+            "mtf_trend": "Mixed",
+            "discovered_setup": "None"
+        },
+        {
+            "symbol": "BABYUSDT",
+            "change_24h": "-16.72%",
+            "volume": "$126,125,471",
+            "mtf_trend": "Mixed",
+            "discovered_setup": "None"
+        },
+        {
+            "symbol": "USD1USDT",
+            "change_24h": "-0.01%",
+            "volume": "$110,317,419",
+            "mtf_trend": "Mixed",
+            "discovered_setup": "None"
+        }
+    ]
+}

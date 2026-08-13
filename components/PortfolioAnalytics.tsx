@@ -27,7 +27,14 @@ function recordSnapshot(tab: 'paper' | 'real', value: number): Snapshot[] {
 export function PortfolioAnalytics({ tab }: { tab: 'paper' | 'real' }) {
   const { ticks } = useMarketData();
   const { portfolio, tradeLog } = usePortfolio();
-  const [series, setSeries] = useState<Snapshot[]>(() => loadLS<Partial<HistoryMap>>(LS_KEYS.pvHistory, {})[tab] ?? []);
+  const [series, setSeries] = useState<Snapshot[]>([]);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setSeries(loadLS<Partial<HistoryMap>>(LS_KEYS.pvHistory, {})[tab] ?? []);
+    setMounted(true);
+  }, [tab]);
+
   // Real-Time Performance Analytics (Production Readiness Review #12) —
   // Sharpe/Sortino/Calmar/Sterling/Ulcer computed from the actual live
   // trade log, reusing the exact backtest risk-metrics math. Paper-only:
@@ -41,14 +48,14 @@ export function PortfolioAnalytics({ tab }: { tab: 'paper' | 'real' }) {
   const totalValue = cash + marketValue;
 
   useEffect(() => {
-    if (!isFinite(totalValue)) return;
+    if (!mounted || !isFinite(totalValue)) return;
     const next = recordSnapshot(tab, totalValue);
     setSeries(next);
     // Snapshot once per render-triggering value change is intentional —
     // recordSnapshot itself collapses same-day writes, so this can't spam
     // localStorage even though it re-runs on every tick.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, Math.round(totalValue)]);
+  }, [mounted, tab, Math.round(totalValue)]);
 
   const hasSessionSeries = series.length >= 2;
   const first = hasSessionSeries ? series[0].value : null;

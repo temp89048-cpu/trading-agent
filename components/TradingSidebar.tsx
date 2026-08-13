@@ -105,14 +105,14 @@ function CollapsibleGroup({
         onClick={() => setOpen((o) => !o)}
         className="w-full flex items-center justify-between px-4 py-3 hover:bg-bg2 hover-lift transition group"
       >
-        <div className="flex items-center gap-2 font-mono text-[12px] font-semibold uppercase tracking-wider text-txt1 group-hover:text-amber transition-colors">
+        <div className="flex items-center gap-2 font-mono text-[12px] font-semibold uppercase tracking-wider text-txt1 group-hover:text-cyan transition-colors">
           <Icon name={icon} size={15} />
           {title}
           <span className="text-[10px] font-normal normal-case tracking-normal text-txt2">{count}</span>
         </div>
         <Icon name="chevron-down" size={14} className={`text-txt2 transition-transform duration-150 ${open ? '' : '-rotate-90'}`} />
       </button>
-      {open && <div className="divide-y divide-line/70 bg-bg1/40">{children}</div>}
+      {open && <div className="divide-y divide-white/5 bg-black/20 backdrop-blur-sm">{children}</div>}
     </div>
   );
 }
@@ -123,7 +123,7 @@ export function TradingSidebar({ onClose }: { onClose?: () => void }) {
   const { watchlist } = useMarketData();
 
   return (
-    <aside className="w-80 max-w-[85vw] h-full shrink-0 border-l flex flex-col border-line bg-bg1">
+    <aside className="w-80 max-w-[85vw] h-full shrink-0 border-l flex flex-col border-line/30 glass-panel z-30">
       <div className="lg:hidden flex items-center justify-between px-4 h-14 border-b border-line shrink-0">
         <span className="font-mono text-xs uppercase tracking-wider text-txt2">Trading</span>
         <button onClick={onClose} className="p-1.5 rounded-md hover:bg-bg3 text-txt1">
@@ -135,7 +135,7 @@ export function TradingSidebar({ onClose }: { onClose?: () => void }) {
         {/* Watchlist is pinned above the collapsible groups — it's the one
             panel that drives everything else below it, so it never hides. */}
         <div className="px-4 py-3.5 border-b border-line bg-bg2/40">
-          <div className="flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-wider text-txt2 mb-2.5">
+          <div className="flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-wider text-cyan mb-2.5 drop-shadow-[0_0_8px_rgba(0,240,255,0.5)]">
             <Icon name="trend-up" size={12} /> Watchlist
           </div>
           <WatchlistEditor onSelectSymbol={(symbol) => setChartItem(watchlist.find((w) => w.symbol === symbol) ?? null)} />

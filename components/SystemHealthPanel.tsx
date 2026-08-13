@@ -39,9 +39,11 @@ export function SystemHealthPanel() {
   async function refreshServerHealth() {
     setCheckingServerHealth(true);
     try {
-      const res = await fetch('/api/health');
-      const json = await res.json();
-      setServerHealth({ overall: json.overall, checks: json.checks ?? [] });
+      const res = await fetch('http://localhost:8000/api/health');
+      if (res.ok) {
+        const json = await res.json();
+        setServerHealth({ overall: json.overall, checks: json.checks ?? [] });
+      }
     } catch (err) {
       setServerHealth({ overall: 'unhealthy', checks: [{ label: 'Server health endpoint', ok: false, detail: err instanceof Error ? err.message : 'unreachable', latencyMs: 0 }] });
     } finally {

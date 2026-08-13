@@ -9,7 +9,7 @@ type PortfolioValue = {
   portfolio: PortfolioState;
   tradeLog: TradeLogEntry[];
   tradeLogLoaded: boolean;
-  buyPaper: (symbol: string, qty: number, price: number, entryContext?: string, debateId?: string, originTag?: TradeLogEntry['originTag']) => boolean;
+  buyPaper: (symbol: string, qty: number, price: number, leverage?: number, entryContext?: string, debateId?: string, originTag?: TradeLogEntry['originTag']) => boolean;
   sellPaper: (symbol: string, qty: number, price: number) => boolean;
   addRealPosition: (symbol: string, qty: number, avgCost: number, entryContext?: string, debateId?: string, originTag?: TradeLogEntry['originTag'], exchangeOrderId?: string) => void;
   removeRealPosition: (symbol: string, exitPrice?: number, exchangeOrderId?: string) => void;
@@ -123,22 +123,24 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  function buyPaper(symbol: string, qty: number, price: number, entryContext?: string, debateId?: string, originTag?: TradeLogEntry['originTag']): boolean {
+  function buyPaper(symbol: string, qty: number, price: number, leverage?: number, entryContext?: string, debateId?: string, originTag?: TradeLogEntry['originTag']): boolean {
     if (!qty || qty <= 0 || !price) return false;
     const prev = portfolioRef.current;
-    const cost = qty * price;
-    if (cost > prev.paper.cash) return false;
+    const notional = qty * price;
+    const marginRequired = leverage && leverage > 0 ? notional / leverage : notional;
+    if (marginRequired > prev.paper.cash) return false;
     const positions = [...prev.paper.positions];
     const idx = positions.findIndex((p) => p.symbol === symbol);
     if (idx >= 0) {
       const ex = positions[idx];
       const newQty = ex.qty + qty;
-      const newAvg = (ex.qty * ex.avgCost + cost) / newQty;
-      positions[idx] = { ...ex, qty: newQty, avgCost: newAvg };
+      const newAvg = (ex.qty * ex.avgCost + notional) / newQty;
+      const newMargin = (ex.marginLocked ?? (ex.qty * ex.avgCost)) + marginRequired;
+      positions[idx] = { ...ex, qty: newQty, avgCost: newAvg, marginLocked: newMargin };
     } else {
-      positions.push({ symbol, qty, avgCost: price });
+      positions.push({ symbol, qty, avgCost: price, marginLocked: marginRequired });
     }
-    const next = { ...prev, paper: { cash: prev.paper.cash - cost, positions } };
+    const next = { ...prev, paper: { cash: prev.paper.cash - marginRequired, positions } };
     portfolioRef.current = next;
     setPortfolio(next);
     logTrade('paper', symbol, 'buy', qty, price, undefined, undefined, entryContext, debateId, originTag);
@@ -152,12 +154,15 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     if (idx < 0 || prev.paper.positions[idx].qty < qty) return false;
     const ex = prev.paper.positions[idx];
     const realizedPnl = (price - ex.avgCost) * qty;
-    const remaining = ex.qty - qty;
+    const remainingQty = ex.qty - qty;
+    const proportionClosed = qty / ex.qty;
+    const marginReleased = (ex.marginLocked ?? (ex.qty * ex.avgCost)) * proportionClosed;
+    
     const positions =
-      remaining > 0.0000001
-        ? prev.paper.positions.map((p, i) => (i === idx ? { ...p, qty: remaining } : p))
+      remainingQty > 0.0000001
+        ? prev.paper.positions.map((p, i) => (i === idx ? { ...p, qty: remainingQty, marginLocked: (p.marginLocked ?? (p.qty * p.avgCost)) - marginReleased } : p))
         : prev.paper.positions.filter((_, i) => i !== idx);
-    const next = { ...prev, paper: { cash: prev.paper.cash + qty * price, positions } };
+    const next = { ...prev, paper: { cash: prev.paper.cash + marginReleased + realizedPnl, positions } };
     portfolioRef.current = next;
     setPortfolio(next);
     logTrade('paper', symbol, 'sell', qty, price, undefined, realizedPnl);

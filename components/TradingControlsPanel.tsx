@@ -4,8 +4,9 @@ import { useState } from 'react';
 import { useTradingControls } from './TradingControls';
 import { useAgent } from './Agent';
 import { useSupervisor } from './Supervisor';
+import { usePortfolio } from './Portfolio';
 import { DEFAULT_RISK_CONFIG, type RiskConfig } from '@/lib/riskManager';
-import type { PendingApproval } from '@/lib/types';
+import { DEFAULT_PORTFOLIO, type PendingApproval } from '@/lib/types';
 
 // Human-in-the-Loop Controls (Production Readiness Review #17). See
 // components/TradingControls.tsx's header comment for why pause/
@@ -57,9 +58,11 @@ function logManualDecision(pending: PendingApproval, outcome: 'manually-approved
 
 export function TradingControlsPanel() {
   const { paused, setPaused, manualApprovalThresholdUsd, setManualApprovalThresholdUsd, realStartingCapitalUsd, setRealStartingCapitalUsd, riskConfig, riskConfigOverrides, setRiskConfigOverride, resetRiskConfig, pendingApprovals, removePendingApproval } = useTradingControls();
+  const { restorePortfolio, portfolio } = usePortfolio();
   const { tasks, cancelAgent } = useAgent();
   const { executeApprovedRequest } = useSupervisor();
   const [showRiskConfig, setShowRiskConfig] = useState(false);
+  const [customCash, setCustomCash] = useState<string>('');
 
   const runningTasks = tasks.filter((t) => t.status === 'running');
 
@@ -86,6 +89,10 @@ export function TradingControlsPanel() {
       originTag: pending.originTag,
       entryContext: pending.entryContext,
       debateId: pending.debateId,
+      // Carried through so the approved trade locks the same margin the
+      // Supervisor validated at queue time. Dropping it here would book a
+      // leveraged trade as 1x, over-reserving cash and misreporting exposure.
+      requestedLeverage: pending.requestedLeverage,
     });
     logManualDecision(pending, 'manually-approved');
     removePendingApproval(pending.id);
@@ -222,9 +229,45 @@ export function TradingControlsPanel() {
                 </div>
               );
             })}
-            <button onClick={resetRiskConfig} className="mt-1 text-[9.5px] font-mono text-txt2 hover:text-txt0 self-start">
-              Reset all to defaults
-            </button>
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  value={customCash}
+                  onChange={(e) => setCustomCash(e.target.value)}
+                  placeholder="Custom Cash (USD)"
+                  className="w-32 bg-bg2 border border-line rounded px-1.5 py-0.5 text-[10.5px] font-mono text-txt0 text-right"
+                />
+                <button
+                  disabled={!customCash}
+                  onClick={() => {
+                    const val = Number(customCash);
+                    if (val >= 0 && window.confirm(`Set paper cash to $${val}?`)) {
+                      restorePortfolio({ ...portfolio, paper: { ...portfolio.paper, cash: val } });
+                      setCustomCash('');
+                    }
+                  }}
+                  className="text-[9.5px] font-mono text-txt2 hover:text-txt0 disabled:opacity-40"
+                >
+                  Set Cash
+                </button>
+              </div>
+              <div className="flex gap-4">
+                <button onClick={resetRiskConfig} className="mt-1 text-[9.5px] font-mono text-txt2 hover:text-txt0 self-start">
+                  Reset all to defaults
+                </button>
+                <button 
+                  onClick={() => {
+                    if (window.confirm("Are you sure you want to reset your Paper Account? This will clear all paper positions and reset cash to $1,000,000.")) {
+                      restorePortfolio(DEFAULT_PORTFOLIO);
+                    }
+                  }} 
+                  className="mt-1 text-[9.5px] font-mono text-red hover:text-red/80 self-start">
+                  Reset Paper Account ($1M)
+                </button>
+              </div>
+            </div>
             <p className="text-[9px] text-txt2">
               Defaults: {(DEFAULT_RISK_CONFIG.maxRiskPctPerTrade * 100).toFixed(1)}% risk/trade,{' '}
               {(DEFAULT_RISK_CONFIG.maxDailyLossPct * 100).toFixed(0)}% daily loss, {(DEFAULT_RISK_CONFIG.maxDrawdownPct * 100).toFixed(0)}% drawdown,{' '}

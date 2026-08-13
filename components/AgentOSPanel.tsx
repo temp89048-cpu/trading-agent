@@ -11,6 +11,7 @@
 import { useMemo, useState } from 'react';
 import { useAgentRuntime } from './AgentRuntime';
 import { Icon } from './Icon';
+import { AgentTerminal } from './AgentTerminal';
 import { contractCoverage, type AgentCategory, type AgentLifecycleState } from '@/lib/agentOS';
 import { AGENT_DESCRIPTORS } from '@/lib/agentDescriptors';
 
@@ -107,6 +108,11 @@ export function AgentOSPanel() {
           style={{ background: snapshot.schedulerRunning ? 'var(--green)' : 'var(--red)' }}
         />
         Scheduler {snapshot.schedulerRunning ? 'active' : 'stopped'}
+      </div>
+      
+      {/* Real-time Event Terminal */}
+      <div className="mt-2 mb-2">
+        <AgentTerminal />
       </div>
 
       {/* Agent-contract coverage (engineering spec Section 5). Reported
@@ -268,7 +274,7 @@ export function AgentOSPanel() {
         );
       })}
 
-      <p className="text-[8px] text-txt2">
+      <p className="text-[8px] text-txt2 mt-2">
         Phase 21 — Multi-Agent Operating System. Registry, lifecycle, health monitoring, dependency graph, sandboxed execution.
       </p>
     </div>

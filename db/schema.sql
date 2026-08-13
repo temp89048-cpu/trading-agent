@@ -429,3 +429,99 @@ CREATE TABLE pending_approvals (
   decision_summary     text NOT NULL
 );
 CREATE INDEX idx_pending_approvals_dedupe ON pending_approvals (dedupe_key);
+
+
+-- ============================================================================
+-- SECTION 3 — Additional TradingOS AI Core Tables (Phase 2 Additions)
+-- ============================================================================
+
+-- Source: 13_DATABASE_SCHEMA.md / Risk Engine Events
+CREATE TABLE risk_events (
+  event_id        text PRIMARY KEY,
+  tar_id          text, -- Links to trade request (may not exist in trades table if rejected)
+  decision        text NOT NULL CHECK (decision IN ('APPROVED', 'REJECTED')),
+  rule_breached   text,
+  rationale       text NOT NULL,
+  timestamp       timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_risk_events_ts ON risk_events (timestamp DESC);
+COMMENT ON TABLE risk_events IS 'Immutable log of every Chief Risk Officer (CRO) decision (approvals and vetoes).';
+
+-- Source: 13_DATABASE_SCHEMA.md / Knowledge Graph (Relational Mapping)
+-- Note: While Cypher/Neo4j is ideal, this provides a relational fallback for the Knowledge Graph.
+CREATE TABLE kg_nodes (
+  id              text PRIMARY KEY,
+  type            text NOT NULL CHECK (type IN ('Trade', 'Strategy', 'MarketRegime', 'MacroEvent', 'Lesson')),
+  properties      jsonb NOT NULL DEFAULT '{}',
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_kg_nodes_type ON kg_nodes (type);
+
+CREATE TABLE kg_edges (
+  id              text PRIMARY KEY,
+  source_node_id  text NOT NULL REFERENCES kg_nodes (id) ON DELETE CASCADE,
+  target_node_id  text NOT NULL REFERENCES kg_nodes (id) ON DELETE CASCADE,
+  relation_type   text NOT NULL CHECK (relation_type IN ('EXECUTED_DURING', 'CAUSED_LIQUIDATION', 'INVALIDATED_BY', 'SUPPORTED_BY', 'GENERATED_LESSON')),
+  properties      jsonb NOT NULL DEFAULT '{}',
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_kg_edges_relations ON kg_edges (source_node_id, target_node_id);
+COMMENT ON TABLE kg_nodes IS 'Knowledge Graph entities mapping.';
+COMMENT ON TABLE kg_edges IS 'Knowledge Graph edges/relationships mapping.';
+
+
+-- =====================================================================
+-- Source: spec Section 19 + Section 22.4 (Execution Engine)
+--
+--   "Every execution must be scored (latency, slippage, fill quality) and
+--    that score written back to docs/13_DATABASE_SCHEMA.md so the
+--    Evaluation layer can use it."
+--
+-- This table did not exist, and none of the three inputs was being
+-- captured: slippage was hardcoded to 0.0 in OrderFilledEvent, latency was
+-- never measured, and fill_quantity was set to the REQUESTED size, so a
+-- partial fill was recorded as complete.
+--
+-- Written by backend/agents/execution_agent.py::_persist_execution_quality.
+-- =====================================================================
+CREATE TABLE execution_quality (
+  -- order_id is the primary key rather than a surrogate: one exchange order
+  -- gets exactly one score, and the idempotent client-order-id means a
+  -- retried submission must not produce a second row.
+  order_id            text PRIMARY KEY,
+  tar_id              text NOT NULL,
+  ts                  timestamptz NOT NULL DEFAULT now(),
+  symbol              text NOT NULL,
+  exchange            text NOT NULL,
+  tab                 text NOT NULL CHECK (tab IN ('paper', 'real')),
+
+  requested_qty       numeric NOT NULL,
+  -- The quantity the exchange actually filled. Distinct from requested_qty
+  -- on purpose: a partial fill must be visible, not inferred.
+  filled_qty          numeric NOT NULL,
+  fully_filled        boolean NOT NULL,
+
+  -- Signed so positive is always a COST, and side-aware (a fill above the
+  -- reference costs a buyer and benefits a seller). NULL when there was no
+  -- reference price to measure against.
+  slippage_bps        numeric,
+  latency_ms          numeric,
+
+  -- NULL means "not measurable", NOT zero. The Evaluation layer must
+  -- EXCLUDE NULL scores from averages rather than treat them as bad
+  -- executions — a fill with no reference price is not a bad fill. Averaging
+  -- unmeasurable fills in as zero would make execution quality look worse
+  -- the more often the price feed drops out.
+  score               numeric CHECK (score IS NULL OR (score >= 0 AND score <= 100)),
+  components_measured integer NOT NULL,
+  components_total    integer NOT NULL,
+
+  notes               jsonb NOT NULL DEFAULT '[]',
+  created_at          timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_execution_quality_ts ON execution_quality (ts DESC);
+CREATE INDEX idx_execution_quality_symbol ON execution_quality (symbol, ts DESC);
+-- Partial fills are the rows worth finding quickly when reconciling the book
+-- against the exchange.
+CREATE INDEX idx_execution_quality_partial ON execution_quality (fully_filled) WHERE fully_filled = false;
+COMMENT ON TABLE execution_quality IS 'Per-order execution score (fill completeness, slippage, latency). A NULL score means not measurable and must be excluded from averages, never counted as zero.';

@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  trading-os:
+    build: .
+    container_name: trading_os
+    restart: always
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./backend/data:/app/backend/data
+      - ./audit.db:/app/audit.db
+      - ./tasks_db.json:/app/tasks_db.json

@@ -538,7 +538,11 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       if (price === undefined) {
         reply = `⚠ No live price available for **${cmd.symbol}** — add it to the watchlist first, or specify one with \`@ <price>\`.`;
       } else if (cmd.tab === 'paper') {
-        const ok = cmd.side === 'buy' ? buyPaper(cmd.symbol, cmd.qty, price, captureContextSnapshot(cmd.symbol, getCandles), undefined, 'user-command') : sellPaper(cmd.symbol, cmd.qty, price);
+        // leverage is deliberately undefined: a typed `/buy` chat command
+        // states no leverage, so buyPaper locks the full notional as margin
+        // (1x). Inventing a leverage here would silently under-lock capital
+        // on a trade the human never asked to leverage.
+        const ok = cmd.side === 'buy' ? buyPaper(cmd.symbol, cmd.qty, price, undefined, captureContextSnapshot(cmd.symbol, getCandles), undefined, 'user-command') : sellPaper(cmd.symbol, cmd.qty, price);
         reply = ok
           ? `✅ Paper **${cmd.side}** ${cmd.qty} **${cmd.symbol}** @ ${price} — logged to the Paper trade log.`
           : `⚠ Paper ${cmd.side} failed — ${cmd.side === 'buy' ? 'insufficient paper cash' : "you don't hold enough of that symbol in Paper"}.`;

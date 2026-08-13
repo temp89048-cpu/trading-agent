@@ -26,7 +26,9 @@ export function PaperTradePanel() {
   function trade(side: 'buy' | 'sell') {
     const q = parseFloat(qty);
     if (!q || q <= 0 || !price) return;
-    const ok = side === 'buy' ? buyPaper(symbol, q, price, captureContextSnapshot(symbol, getCandles), undefined, 'manual-click') : sellPaper(symbol, q, price);
+    // Manual panel has no leverage input, so pass undefined = 1x (full
+    // notional locked as margin) rather than guessing a multiplier.
+    const ok = side === 'buy' ? buyPaper(symbol, q, price, undefined, captureContextSnapshot(symbol, getCandles), undefined, 'manual-click') : sellPaper(symbol, q, price);
     setNotice(ok ? null : side === 'buy' ? 'Not enough cash for that.' : "You don't hold that much.");
     if (ok) setQty('');
   }

@@ -133,7 +133,7 @@ export type AgentEvent = {
   message: string; // human-readable, ready to post into chat as-is
 };
 
-export type Position = { symbol: string; qty: number; avgCost: number };
+export type Position = { symbol: string; qty: number; avgCost: number; marginLocked?: number };
 
 export type PortfolioState = {
   paper: { cash: number; positions: Position[] };
@@ -141,7 +141,7 @@ export type PortfolioState = {
 };
 
 export const DEFAULT_PORTFOLIO: PortfolioState = {
-  paper: { cash: 25000, positions: [] },
+  paper: { cash: 1000000, positions: [] },
   real: { positions: [] },
 };
 

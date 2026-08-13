@@ -19,14 +19,16 @@ export function ChatMessage({ message, isStreamingReply }: { message: Message; i
   return (
     <div className={`group flex flex-col gap-1 rise ${isUser ? 'items-end' : 'items-start'}`}>
       <div className={`flex items-baseline gap-1.5 px-1 text-[10.5px] font-mono ${isUser ? 'flex-row-reverse' : ''}`}>
-        <span className="font-semibold" style={{ color: isUser ? 'var(--txt-1)' : 'var(--amber)' }}>
+        <span className="font-semibold" style={{ color: isUser ? 'var(--cyan)' : 'var(--amber)' }}>
           {isUser ? 'You' : 'QUANT//'}
         </span>
         <span className="text-txt2">{formatTimestamp(message.ts)}</span>
       </div>
       <div
-        className={`max-w-[85%] rounded-lg px-4 py-3 card-shadow ${
-          isUser ? 'bg-amber text-black' : 'border border-line bg-bg2'
+        className={`max-w-[85%] rounded-lg px-4 py-3 ${
+          isUser 
+            ? 'bg-cyan/10 text-txt0 border border-cyan/30 backdrop-blur-sm shadow-[0_4px_20px_rgba(0,240,255,0.1)]' 
+            : 'glass-panel'
         }`}
       >
         {isUser ? (

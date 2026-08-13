@@ -56,8 +56,9 @@ export function MissionPlannerPanel() {
   const [accumMaxCost, setAccumMaxCost] = useState(60000);
   const [cashPct, setCashPct] = useState(60);
   const [cashDays, setCashDays] = useState(14);
-  const [capitalStart, setCapitalStart] = useState(2);
-  const [capitalTarget, setCapitalTarget] = useState(20);
+  const [capitalStart, setCapitalStart] = useState(25000);
+  const [capitalTarget, setCapitalTarget] = useState(30000);
+  const [agentLeverage, setAgentLeverage] = useState(1);
 
   function handleCreate() {
     let target: MissionTarget;
@@ -89,6 +90,9 @@ export function MissionPlannerPanel() {
       name: missionName,
       description: describeMissionTarget(target),
       target,
+      constraints: [
+        { kind: 'max-leverage', value: agentLeverage }
+      ]
     });
 
     setCreationStep('idle');
@@ -402,6 +406,20 @@ export function MissionPlannerPanel() {
           <p className="text-[8px] text-txt2">No fixed deadline — a hard time limit on a dollar target pushes toward unsafe risk-taking to hit the number in time. This only ever informs the Supervisor's caution notes, never a hard risk rule.</p>
         </>
       )}
+            <div className="border-t border-line mt-2 pt-2">
+              <label className="text-[10px] font-mono text-txt2 block mb-1">Agent Leverage</label>
+              <div className="flex items-center gap-2 text-[10px] font-mono">
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={agentLeverage}
+                  onChange={(e) => setAgentLeverage(Math.max(1, Number(e.target.value)))}
+                  className="bg-bg2 border border-line rounded px-2 py-1 w-20 text-txt0"
+                />
+                <span className="text-txt2">x (applied to spawned agents)</span>
+              </div>
+            </div>
 
       <div className="flex items-center gap-1.5 mt-1">
         <button
