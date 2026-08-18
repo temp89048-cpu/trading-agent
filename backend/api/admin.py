@@ -18,7 +18,9 @@ to the inverse case — the bot is very much awake and they want it to stop.
 import logging
 from typing import Any, Dict
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from backend.core.auth import auth_status, require_write_auth
 
 from backend.core.system_state import (
     is_emergency_stopped,
@@ -50,10 +52,14 @@ async def get_status() -> Dict[str, Any]:
         # Stated explicitly so a UI can't imply that a pause also blocks
         # exits — it does not, by design (CLAUDE.md invariant 4).
         "exitsAllowed": True,
+        # Surfaced so an operator can confirm the service is protected rather
+        # than assume it. When TRADES_API_KEY is unset this reports it plainly,
+        # because "I thought auth was on" is how an open port stays open.
+        "auth": auth_status(),
     }
 
 
-@router.post("/pause")
+@router.post("/pause", dependencies=[Depends(require_write_auth)])
 async def pause_system() -> Dict[str, Any]:
     """Halt new position entries. Open positions stay monitored and closable."""
     pause("POST /api/admin/pause")
@@ -63,14 +69,14 @@ async def pause_system() -> Dict[str, Any]:
     }
 
 
-@router.post("/resume")
+@router.post("/resume", dependencies=[Depends(require_write_auth)])
 async def resume_system() -> Dict[str, Any]:
     """Clear pause and emergency stop."""
     resume("POST /api/admin/resume")
     return {"status": "success", "message": "System resumed."}
 
 
-@router.post("/emergency-stop")
+@router.post("/emergency-stop", dependencies=[Depends(require_write_auth)])
 async def emergency_stop() -> Dict[str, Any]:
     """Halt all new entries and mark every running task stopped.
 

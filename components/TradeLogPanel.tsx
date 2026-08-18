@@ -16,11 +16,15 @@ export function TradeLogPanel({ tab }: { tab: 'paper' | 'real' }) {
 
   const fetchTrades = async () => {
     try {
-      const res = await fetch(`http://localhost:8000/api/trades?tab=${tab}&limit=${SIDEBAR_PREVIEW_COUNT}`);
+      // Relative — see the note in TradeHistoryTable. `/api/trades` is a
+      // Next.js route; the absolute :8000 URL 404'd because FastAPI serves
+      // trades at /api/execution.
+      const res = await fetch(`/api/trades?tab=${tab}&limit=${SIDEBAR_PREVIEW_COUNT}`);
       const data = await res.json();
-      if (data.status === 'success') {
-        setRows(data.trades);
-      }
+      // Accepts both the Next (`{ trades }`) and FastAPI
+      // (`{ status, trades }`) shapes rather than silently rendering nothing
+      // when the `status` field is absent.
+      setRows(Array.isArray(data?.trades) ? data.trades : []);
     } catch (e) {
       console.error('Failed to fetch trades', e);
     } finally {

@@ -159,16 +159,35 @@ async def test_invalid_status_is_rejected():
 
 
 def test_only_the_api_route_passes_set_by_human():
-    """`set_by_human=True` must appear in exactly one place: the HTTP route an
-    operator drives. Anywhere else would be a backdoor around the gate."""
+    """`set_by_human=True` must be PASSED in exactly one place: the HTTP route an
+    operator drives. Anywhere else would be a backdoor around the gate.
+
+    Checks real call arguments via `ast`, not raw text. A text search also
+    matched `backend/core/auth.py`, whose docstring discusses this very gate —
+    prose about a rule is not a violation of it, and a test that can't tell the
+    difference would push authors toward not documenting the rule.
+    """
     hits = []
     for path in BACKEND.rglob("*.py"):
         if "__pycache__" in path.parts:
             continue
-        text = path.read_text(encoding="utf-8")
-        if "set_by_human=True" in text:
-            hits.append(path.relative_to(ROOT).as_posix())
-    assert hits == ["backend/api/research.py"], f"set_by_human=True appears in: {hits}"
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            for kw in node.keywords:
+                if (
+                    kw.arg == "set_by_human"
+                    and isinstance(kw.value, ast.Constant)
+                    and kw.value.value is True
+                ):
+                    hits.append(path.relative_to(ROOT).as_posix())
+    assert sorted(set(hits)) == ["backend/api/research.py"], (
+        f"set_by_human=True is passed in: {sorted(set(hits))}"
+    )
 
 
 # ---------------------------------------------------------------------------

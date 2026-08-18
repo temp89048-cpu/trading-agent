@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAgentWebSocket } from '@/lib/useAgentWebSocket';
+import { eventTimeMs } from '@/lib/agentEventStream';
 
 type Trade = {
   id: string;
@@ -21,11 +22,20 @@ export function TradeHistoryTable() {
 
   const fetchTrades = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/trades?limit=20');
+      // Relative: this app's own /api/trades route, which reads the .data/
+      // trade store and needs no external service.
+      //
+      // This was `http://127.0.0.1:8000/api/trades`, which 404s — FastAPI
+      // serves trades at /api/execution, and /api/trades is a Next.js route.
+      const res = await fetch('/api/trades?limit=20');
       const data = await res.json();
-      if (data.status === 'success') {
-        setTrades(data.trades);
-      }
+      // Tolerant of both response shapes. The Next route returns `{ trades }`;
+      // FastAPI's /api/execution returns `{ status: 'success', trades }`. The
+      // old code required `status === 'success'`, so pointing it at the Next
+      // route would render an empty table with no error — the check simply
+      // failed and nothing was logged.
+      const rows = Array.isArray(data?.trades) ? data.trades : [];
+      setTrades(rows);
     } catch (err) {
       console.error('Failed to fetch trades', err);
     } finally {
@@ -39,7 +49,15 @@ export function TradeHistoryTable() {
 
   // When an ORDER_FILLED event happens over WS, refresh the table
   useEffect(() => {
-    const hasNewOrder = events.some(e => e.event_type === 'ORDER_FILLED' && (Date.now() - new Date(e.timestamp).getTime() < 2000));
+    // An ORDER_FILLED with no usable timestamp is treated as recent rather than
+    // ignored: `new Date(undefined).getTime()` is NaN, and every comparison
+    // against NaN is false, so a fill without a timestamp silently failed to
+    // refresh the table — the panel would just never update.
+    const hasNewOrder = events.some((e) => {
+      if (e.event_type !== 'ORDER_FILLED') return false;
+      const ms = eventTimeMs(e);
+      return ms === null || Date.now() - ms < 2000;
+    });
     if (hasNewOrder) {
       fetchTrades();
     }

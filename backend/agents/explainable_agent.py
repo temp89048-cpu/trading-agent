@@ -70,3 +70,22 @@ def generate_receipt(trade_context: Dict[str, Any], confidence_score: int, tp_sl
     
     logger.info(receipt)
     return receipt
+
+
+# ---------------------------------------------------------------------------
+# UNWIRED — zero callers, deliberately.
+#
+# `generate_receipt` produces a human-readable explanation of a trade. It is not
+# wired in because the explainability requirement is already met by a mechanism
+# that cannot drift from reality: every agent implements
+# `BaseAgent.record_decision` / `explain_decision` (spec Section 5's
+# non-negotiable rule), and the Supervisor writes a full rationale into the
+# `decisions` table for both approvals AND refusals.
+#
+# Adding a second explanation path means two descriptions of one decision that
+# can disagree — and the one built from a separate code path is the one that
+# will be wrong, because it re-derives facts instead of recording them.
+#
+# It stays available for a report-export surface, where a prose summary of an
+# already-recorded decision is genuinely a different job from the decision log.
+# ---------------------------------------------------------------------------

@@ -141,6 +141,9 @@ class ContinuousMonitorWorker:
         # known gap rather than silently omitted from the checklist, so the
         # cycle record reflects what was actually considered.
         unanswered = [
+            "What am I missing? — requires semantic reflection not currently in the monitor loop.",
+            "Is my prediction still valid? — requires comparing TradeThesis against live price action.",
+            "Should I reduce leverage? / Should I hedge? — position scaling and hedging logic resides in the portfolio agent.",
             "Should I ask another AI? — second-opinion collaboration is implemented on the "
             "TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
             "Should I ask the user? — no backend notification channel exists.",
@@ -163,9 +166,36 @@ class ContinuousMonitorWorker:
 
         if concerns:
             logger.warning("Monitor cycle: %d concern(s): %s", len(concerns), "; ".join(concerns))
+            
+            # Fire a monitoring concern trigger for the LangGraph reasoner to catch
+            from backend.core.message_bus import get_message_bus
+            from backend.models.events import TriggerFiredEvent
+            
+            bus = get_message_bus()
+            event = TriggerFiredEvent(
+                symbol="PORTFOLIO",  # Or specific if it's one asset, but general for now
+                kind="monitoring_concern",
+                detail="; ".join(concerns),
+                acted=True,
+                observed_value=float(len(concerns)),
+                threshold=1.0,
+                suppressed_reason=None
+            )
+            # Ensure we publish asynchronously without blocking the loop completely if it fails
+            try:
+                await bus.publish("TRIGGER_FIRED", event)
+            except Exception as e:
+                logger.error("Failed to publish monitoring concern trigger: %s", e)
         else:
             logger.info("Monitor cycle: %s", "; ".join(observations) or "nothing to report")
 
+        # Save to working memory
+        try:
+            from backend.services.working_memory import record_monitoring_cycle
+            await record_monitoring_cycle(cycle)
+        except Exception as e:
+            logger.error("Failed to record monitoring cycle to working memory: %s", e)
+            
         return cycle
 
 

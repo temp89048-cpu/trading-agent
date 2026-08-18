@@ -1,29 +1,42 @@
-fastapi==0.103.1
-uvicorn==0.23.2
-httpx==0.25.0
-pydantic==2.3.0
-python-dotenv==1.0.0
-cryptography==41.0.3
-networkx==3.1
-numpy==1.25.2
+fastapi
+uvicorn
+httpx
+pydantic
+python-dotenv
+cryptography
+networkx
+numpy>=2.1.0
 
-pandas==2.1.0
-scipy==1.11.2
+pandas>=2.2.0
+scipy>=1.14.0
 
 # asyncpg is imported by backend/core/db.py, which backend/main.py imports at
 # startup (init_db/close_db). It was missing here, so `pip install -r
 # requirements.txt` followed by `uvicorn backend.main:app` — exactly what the
 # Dockerfile does — failed with ModuleNotFoundError before serving a request.
-asyncpg==0.28.0
+asyncpg
 
 # ccxt is imported by backend/services/exchange_client.py, which the
 # ExecutionAgent imports. It was listed only in requirements-exchange.txt,
 # which the Dockerfile never installs, so the container could not start.
 # Kept here rather than left split: an execution path that cannot import is
 # not an optional feature, it is a broken build.
-ccxt==4.1.13
+ccxt
 
 # Test dependency for tests/test_agents.py (pytest is invoked by the QA gate
 # in spec Section 22.9). Was not declared anywhere.
-pytest==7.4.3
-pytest-asyncio==0.21.1
+pytest
+pytest-asyncio
+
+# ---------------------------------------------------------------------------
+# Phase 23 — LangGraph cognitive plane (TradingOS-LangGraph-Architecture-Spec.md)
+#
+# aiosqlite is NOT optional. The synchronous SqliteSaver raises
+# NotImplementedError the moment a graph is driven with `ainvoke`, and every
+# agent in this backend is async — so the async checkpointer is the only
+# realistic call path. Omitting this would work in a sync unit test and fail on
+# the first real run (spec Section 39.1: durable checkpointing from day one).
+# ---------------------------------------------------------------------------
+langgraph
+langgraph-checkpoint-sqlite
+aiosqlite

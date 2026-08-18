@@ -1,67 +1,45 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState } from 'react';
 
-export type AgentEvent = {
-  event_type: string;
-  agent: string;
-  timestamp: string;
-  [key: string]: any;
-};
+import {
+  type AgentStreamEvent,
+  subscribeToAgentEvents,
+} from './agentEventStream';
 
-export function useAgentWebSocket(url: string = 'ws://127.0.0.1:8000/api/ws/agent-events') {
+export type AgentEvent = AgentStreamEvent;
+
+/**
+ * Agent-event stream.
+ *
+ * Now a thin wrapper over the SHARED connection in `lib/agentEventStream.ts`.
+ * It previously opened its own WebSocket per call site; three components use
+ * this hook and two use `useAgentOS`, so the app held five sockets to one
+ * endpoint. See that module's header for the reconnect-timer bug that came with
+ * the old implementation.
+ *
+ * The return shape is unchanged so existing consumers need no edits.
+ *
+ * The `url` parameter is gone: it was defaulted to a path nothing serves
+ * (`/api/ws/agent-events`), and a per-call-site URL is incompatible with one
+ * shared connection. The endpoint now comes from `lib/backendConfig.ts`, which
+ * derives ws/wss from the configured backend origin.
+ */
+export function useAgentWebSocket() {
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [isConnected, setIsConnected] = useState(false);
-  const wsRef = useRef<WebSocket | null>(null);
-
-  const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
-
-    const ws = new WebSocket(url);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      console.log('Connected to AgentOS WebSocket');
-      setIsConnected(true);
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data) as AgentEvent;
-        // Prepend new events so the newest is at index 0
-        setEvents((prev) => [data, ...prev].slice(0, 100)); // Keep last 100
-      } catch (err) {
-        console.error('Failed to parse WebSocket message:', err);
-      }
-    };
-
-    ws.onclose = () => {
-      console.log('Disconnected from AgentOS WebSocket. Reconnecting in 3s...');
-      setIsConnected(false);
-      setTimeout(connect, 3000);
-    };
-
-    ws.onerror = (err) => {
-      console.error('WebSocket Error:', err);
-      ws.close();
-    };
-  }, [url]);
 
   useEffect(() => {
-    connect();
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.onclose = null; // Prevent reconnect on unmount
-        wsRef.current.close();
-      }
-    };
-  }, [connect]);
+    return subscribeToAgentEvents((state) => {
+      setEvents(state.events);
+      setIsConnected(state.isConnected);
+    });
+  }, []);
 
-  // A helper to filter events easily
-  const getEventsByType = (type: string) => events.filter(e => e.event_type === type);
+  const getEventsByType = (type: string) => events.filter((e) => e.event_type === type);
 
   return {
     events,
     isConnected,
     getEventsByType,
-    latestEvent: events.length > 0 ? events[0] : null
+    latestEvent: events.length > 0 ? events[0] : null,
   };
 }

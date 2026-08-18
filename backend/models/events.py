@@ -22,7 +22,23 @@ EventType = Literal[
     'ORDER_ROUTED',
     'ORDER_FILLED',
     'POSITION_CLOSED',
-    'REFLECTION_COMPLETED'
+    'REFLECTION_COMPLETED',
+    # Phase 31 / LangGraph spec Section 14. Published when a market condition
+    # crosses a threshold and a reasoning run is warranted — or when one was
+    # detected and deliberately SUPPRESSED by debounce or the rate ceiling.
+    # Suppressions are published too: "we saw it and chose not to act" is a
+    # different fact from "we never saw it", and only one of those is a bug.
+    'TRIGGER_FIRED',
+    # Phase 29 / LangGraph spec Section 12. The INERT boundary crossing:
+    #
+    #   LangGraph -> ExecutionRequest -> Risk Gateway -> Execution Service
+    #             -> Exchange -> Order Confirmation -> Event Bus -> Monitoring
+    #
+    # Published by the analysis graph when the Risk Gateway approved a plan, and
+    # consumed by `services/execution_service.py`. Deliberately NOT a TAR: this
+    # event carries no authority and nothing about it is an instruction to trade.
+    # A graph may say "here is an approved plan"; only the CRO may say "execute".
+    'EXECUTION_PLAN_READY',
 ]
 
 class BaseEvent(BaseModel):
@@ -222,6 +238,67 @@ class PositionClosedEvent(BaseEvent):
     exit_reason: str
     strategies: List[str] = Field(default_factory=list)
     held_seconds: Optional[float] = None
+
+# 8c. TRIGGER_FIRED — Phase 31 (spec Section 14)
+#
+#     "Your agent should continuously ask 'did anything change?' — not just run
+#      on a timer. Use event triggers, not polling. ... These generate graph
+#      runs. This is far more efficient than 'every 5 minutes → run LLM.'"
+#
+# `acted` is required and has no default. A trigger that was detected but
+# suppressed still gets published, because an operator asking "why didn't the
+# system react to that move?" needs to distinguish a missed detection from a
+# deliberate suppression. Defaulting `acted=True` would hide every suppression.
+class TriggerFiredEvent(BaseEvent):
+    event_type: Literal['TRIGGER_FIRED'] = 'TRIGGER_FIRED'
+    symbol: str
+    kind: str
+    detail: str
+    acted: bool
+    observed_value: Optional[float] = None
+    threshold: Optional[float] = None
+    # Set exactly when acted is False.
+    suppressed_reason: Optional[str] = None
+    # The graph run this trigger started, when it started one.
+    run_id: Optional[str] = None
+
+
+# 8d. EXECUTION_PLAN_READY — Phase 29 (spec Section 12)
+#
+#     "LangGraph generates an execution request; execution happens OUTSIDE
+#      LangGraph."
+#
+# The boundary object, as an event. It is a REQUEST, not an approval and not an
+# order: no field on it grants authority, and the Execution Service re-validates
+# everything on it rather than trusting that a gateway ran.
+#
+# `intent` is required and has no default. An open and a close travel completely
+# different paths downstream — an open goes through the CRO, a close must NOT
+# (CLAUDE.md invariant 4) — so a defaulted intent would decide the most
+# safety-critical routing question in this system by omission.
+class ExecutionPlanReadyEvent(BaseEvent):
+    event_type: Literal['EXECUTION_PLAN_READY'] = 'EXECUTION_PLAN_READY'
+    symbol: str
+    intent: Literal['open', 'close']
+    side: Literal['buy', 'sell']
+    tab: Literal['paper', 'real']
+    # Derived from decision identity, never from a thread id (Section 39.3). The
+    # Execution Service keys its duplicate-submission guard off this.
+    idempotency_basis: str
+    # None on a close whose held quantity could not be read — the executor sizes
+    # it. Never a guessed number.
+    size: Optional[float] = None
+    leverage: Optional[int] = None
+    # Required for an OPEN, and the service rejects an open without it
+    # (invariant 3). Always None on a close: the close IS the exit.
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
+    # For traceability back to the reasoning that produced this.
+    run_id: Optional[str] = None
+    strategy: Optional[str] = None
+    rationale: Optional[str] = None
+    entry_price: Optional[float] = None
+
 
 # 9. REFLECTION_COMPLETED
 class ReflectionCompletedEvent(BaseEvent):

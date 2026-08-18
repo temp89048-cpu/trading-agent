@@ -52,7 +52,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from backend.core.agent_base import BaseAgent
-from backend.core.knowledge_graph import get_knowledge_graph
+from backend.services.semantic_memory import upsert_entity, add_relationship
 from backend.models.events import BaseEvent, EventType, ReflectionCompletedEvent
 from backend.services.research_store import (
     add_hypothesis,
@@ -213,7 +213,7 @@ class HypothesisAgent(BaseAgent):
             tasks=tasks,
         )
 
-        self._update_knowledge_graph(event, won)
+        await self._update_knowledge_graph(event, won)
 
         self.record_decision(
             "hypothesis-proposed",
@@ -318,18 +318,22 @@ class HypothesisAgent(BaseAgent):
             "path can promote a hypothesis without it.",
         ]
 
-    def _update_knowledge_graph(self, event: ReflectionCompletedEvent, won: bool) -> None:
+    async def _update_knowledge_graph(self, event: ReflectionCompletedEvent, won: bool) -> None:
         """Record the observed outcome relationship (Section 12 artifact 8).
 
         Weight is low on purpose: one trade is weak evidence. It is recorded so
         the relationship accumulates across trades, not so it can be acted on
         after one observation. Nothing in the risk or sizing path reads this
-        graph — see api/knowledge.py.
+        graph.
         """
         try:
-            kg = get_knowledge_graph()
             outcome = "Profitable Outcome" if won else "Loss Outcome"
-            kg.add_relationship(f"Trade {event.trade_id}", outcome, weight=0.1)
+            trade_id = f"Trade_{event.trade_id}"
+            
+            # Use the new Phase 32 Semantic Memory layer
+            await upsert_entity(trade_id, "Trade", {"pnl": event.pnl})
+            await upsert_entity(outcome, "Outcome", {"type": outcome})
+            await add_relationship(trade_id, outcome, "resulted_in", weight=0.1)
         except Exception as e:
             logger.warning("Could not update knowledge graph for trade %s: %s", event.trade_id, e)
 

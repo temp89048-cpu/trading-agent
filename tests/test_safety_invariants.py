@@ -133,7 +133,11 @@ def test_trade_with_no_candles_is_rejected_not_silently_approved():
     assert result.approved is False
     assert result.checks["MandatoryStopLoss"].status == "reject"
     assert result.checks["Liquidity"].status == "reject"
-    assert result.checks["DrawdownExposure"].status == "reject"
+    # Renamed from `DrawdownExposure` in Phase 28: this is the loss THIS trade
+    # takes if its stop is hit, not portfolio drawdown. `MaxDrawdown` is now a
+    # separate check, and two differently-scoped limits sharing one name is how a
+    # reviewer concludes a limit is enforced when a different one is.
+    assert result.checks["PerTradeRisk"].status == "reject"
 
 
 def test_too_few_candles_for_atr_is_rejected():

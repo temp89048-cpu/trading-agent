@@ -16,13 +16,28 @@ names.
 it is what lets the ensemble mute a strategy instead of averaging its bad
 signal into the consensus.
 
-REGIME LABELS MATCH THE EXISTING CLASSIFIER
--------------------------------------------
-The labels here are exactly what `agents/regime_agent.detect_market_regime`
-returns, not the TypeScript side's richer set (`strong-bull`, `compression`,
-...). Inventing a second vocabulary would mean a translation layer, and a
-mistranslation would silently gate the wrong strategies. When the Python
-classifier gains finer labels, this list should follow it.
+REGIME LABELS NO LONGER MATCH THE CLASSIFIER — THEY ARE TRANSLATED
+-----------------------------------------------------------------
+This section used to say the labels here were exactly what
+`agents/regime_agent.detect_market_regime` returns, and warned that a second
+vocabulary "would mean a translation layer, and a mistranslation would silently
+gate the wrong strategies."
+
+That is precisely what happened. `regime_agent` was later upgraded to spec Section
+21's ten regimes (Bull Trend, Bear Trend, Range, Accumulation, Distribution, Panic,
+Euphoria, Liquidity Crisis, High/Low Volatility) — a genuine requirement, correctly
+met. But the four labels below were not updated with it, and only "High Volatility"
+appears in both sets. `is_strategy_active_in_regime` therefore returned False for
+EVERY strategy in nine of the ten regimes: the ensemble voted nothing whenever a
+regime was classified, and `algorithms/debate.score_debate` — which weights the
+ensemble at 4.0, its heaviest leg — recorded it as unavailable on every run and
+scaled every confidence in the system down to 72% coverage. Nothing raised.
+
+So the translation layer this warning feared now exists, deliberately and in one
+place: `REGIME_ALIASES` plus `canonical_regime()` below, with
+`test_every_regime_the_agent_can_return_is_translatable` failing the moment a third
+vocabulary appears. The labels here remain the PROFILE vocabulary; the classifier's
+names are mapped onto them on the way in.
 
 HISTORICAL SUCCESS RATE IS `None`, NOT ZERO
 -------------------------------------------
@@ -36,7 +51,8 @@ field rather than letting the profile look finished.
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-# Exactly the labels agents/regime_agent.detect_market_regime returns.
+# The PROFILE vocabulary. NOT what regime_agent returns any more — see the
+# translation note in the module docstring and REGIME_ALIASES below.
 REGIME_TRENDING_BULL = "Trending Bullish"
 REGIME_TRENDING_BEAR = "Trending Bearish"
 REGIME_RANGING = "Ranging / Low Volatility"
@@ -283,6 +299,65 @@ STRATEGY_PROFILES: List[StrategyProfile] = [
         ],
         self_evaluation="Measure how often both legs filled; a single-leg fill is a failure regardless of P&L.",
     ),
+
+    # -----------------------------------------------------------------------
+    # Two additions from spec Section 18, moved up from PLANNED_STRATEGIES because
+    # their documented objections do not apply to what is built here. See the note
+    # above `vwap_agent` in agents/strategy_ensemble.py for the full reasoning, and
+    # for why Volume Profile, SMC, ICT and Wyckoff were reverted rather than shipped.
+    #
+    # Section 18: "The AI should learn when *not* to use each strategy — that's
+    # equally important as knowing when to use it." That is what `worst_conditions`
+    # and `failure_modes` carry on both entries.
+    # -----------------------------------------------------------------------
+    StrategyProfile(
+        agent="VWAP",
+        name="VWAP Reversion",
+        best_conditions="Price stretched more than 2% from the 30-candle volume-weighted mean with participation thinning.",
+        worst_conditions="A trending market with sustained one-way volume — VWAP rises with price and the fade loses the whole way up.",
+        expected_holding_time="Minutes to hours",
+        risk_profile="~1:2 R:R, tight stop because the entry is a stretch that should snap back quickly",
+        indicators_used=["VWAP(30)", "volume"],
+        entry_logic="Price deviates >2% from the 30-candle VWAP; enter against the deviation.",
+        exit_logic="Return to VWAP, or the ATR stop at 1.5x.",
+        position_sizing_rule="Volatility-adjusted from the ATR stop distance (core/risk_manager).",
+        active_regimes=(REGIME_RANGING, REGIME_HIGH_VOL),
+        historical_success_rate=None,
+        confidence_rules="Conviction scales with the deviation; below 2% the strategy declines to act rather than voting weakly.",
+        portfolio_rules="Subject to the correlated-exposure cap — VWAP dislocations cluster across a market during one move.",
+        failure_modes=[
+            "Trend day: VWAP is dragged along and every fade loses.",
+            "Zero-volume candles make the weighting meaningless; the agent holds rather than falling back to an unweighted mean.",
+        ],
+        self_evaluation="Compare how often price returned to VWAP before the stop against how often the deviation kept widening.",
+    ),
+    StrategyProfile(
+        agent="VolatilityBreakout",
+        name="Volatility Expansion (squeeze breakout — NOT volatility-as-an-asset)",
+        best_conditions="Realised range compressed below 70% of its baseline, then an expansion candle above 150%.",
+        worst_conditions="Sustained high volatility — there is no squeeze to expand out of, and every large candle looks like a signal.",
+        expected_holding_time="Minutes to hours",
+        risk_profile="~1:2 R:R, and the stop is wide by construction because entry is on an expansion candle",
+        indicators_used=["realised candle range", "30-candle range baseline"],
+        entry_logic="Squeeze (recent range <70% of baseline) then expansion (>150%); direction from the expansion candle.",
+        exit_logic="ATR stop at 1.5x, target 3.0x.",
+        position_sizing_rule="Volatility-adjusted — the expansion itself widens the stop and therefore shrinks the size.",
+        active_regimes=(REGIME_RANGING, REGIME_HIGH_VOL),
+        historical_success_rate=None,
+        confidence_rules="A squeeze with no expansion yet is a SETUP, not a signal — the agent holds rather than guessing which way it resolves.",
+        portfolio_rules="Subject to the correlated-exposure cap; volatility expansions are usually market-wide.",
+        failure_modes=[
+            "False expansion: one large candle that immediately reverses.",
+            "Entering on the expansion means entering at the worst price of the move.",
+        ],
+        self_evaluation="Count how many expansions continued past 1R versus reversed within the entry candle's range.",
+    ),
+    # --- The three that CANNOT vote here, profiled anyway --------------------
+    #
+    # No entry in `STRATEGY_FUNCTIONS`, so `_score_one` returns
+    # "no strategy function registered" and they score as UNEVALUATED rather than as
+    # zero. They still appear in `enumerate_candidates`'s output with that reason,
+    # which is the point: the library knows they exist and why they are unavailable.
 ]
 
 _BY_AGENT: Dict[str, StrategyProfile] = {p.agent: p for p in STRATEGY_PROFILES}
@@ -317,11 +392,6 @@ PLANNED_STRATEGIES: Dict[str, str] = {
         "Needs traded volume bucketed by PRICE level, not by time. The kline feed provides "
         "volume per time bucket only; deriving value areas from it would be a guess."
     ),
-    "VWAP": (
-        "Computable from klines, but a session-anchored VWAP needs a defined session "
-        "boundary, which is ambiguous for 24/7 crypto. Implemented on the TypeScript side "
-        "as lib/strategies/vwapReversion.ts."
-    ),
     "Market Making": (
         "Requires resting two-sided limit orders and live order-book depth. The Execution "
         "Engine places market orders only and there is no order-book feed."
@@ -338,9 +408,11 @@ PLANNED_STRATEGIES: Dict[str, str] = {
         "agents/event_agent.py detects volume and volatility anomalies, but there is no "
         "scheduled economic-calendar feed, so genuine event-driven entries cannot be timed."
     ),
-    "Volatility": (
+    "Volatility (as an asset)": (
         "True volatility trading needs options or variance instruments. Only linear "
-        "futures are reachable through the exchange client."
+        "futures are reachable through the exchange client. NOTE: the implemented "
+        "`VolatilityBreakout` profile is a different strategy — a directional breakout "
+        "triggered by a volatility expansion — and does not satisfy this entry."
     ),
     "Funding-Rate Arbitrage": (
         "The funding rate IS available (agents/sentiment_agent.fetch_macro_data), but "
@@ -376,7 +448,74 @@ def get_profile(agent: str) -> Optional[StrategyProfile]:
     return _BY_AGENT.get(agent)
 
 
-def is_strategy_active_in_regime(agent: str, regime: str) -> bool:
+# ---------------------------------------------------------------------------
+# Regime vocabulary translation.
+#
+# THIS EXISTS BECAUSE TWO VOCABULARIES SILENTLY KILLED THE STRATEGY ENSEMBLE.
+#
+# `agents/regime_agent.detect_market_regime` returns spec Section 21's ten names
+# (Bull Trend, Bear Trend, Range, High Volatility, Low Volatility, Accumulation,
+# Distribution, Panic, Euphoria, Liquidity Crisis). The `active_regimes` field on
+# every profile below uses a different four (Trending Bullish, Trending Bearish,
+# Ranging / Low Volatility, High Volatility).
+#
+# Only "High Volatility" appears in both. So `is_strategy_active_in_regime` returned
+# False for ALL NINE strategies in nine of the ten regimes — the ensemble voted
+# nothing whenever a regime was successfully classified, and
+# `algorithms/debate.score_debate` (which asks `regime_agent` and weights the
+# ensemble at 4.0, its heaviest leg) permanently recorded
+# "strategy ensemble (every strategy gated out)" and scaled every debate's
+# confidence down to 72% coverage.
+#
+# Nothing raised. Both halves were internally consistent; they just did not speak to
+# each other. That is why the translation is explicit and tested rather than left to
+# string overlap — `test_every_regime_name_is_translatable` fails if a fourth
+# vocabulary appears.
+# ---------------------------------------------------------------------------
+
+REGIME_ALIASES: Dict[str, str] = {
+    # Section 21 name            -> profile vocabulary
+    "Bull Trend": "Trending Bullish",
+    "Bear Trend": "Trending Bearish",
+    "Range": "Ranging / Low Volatility",
+    "Low Volatility": "Ranging / Low Volatility",
+    # Accumulation and distribution are range-bound by definition — price moving
+    # sideways while positioning changes underneath. Mapped to the ranging bucket so
+    # range and mean-reversion strategies remain eligible, which is what those
+    # regimes call for.
+    "Accumulation": "Ranging / Low Volatility",
+    "Distribution": "Ranging / Low Volatility",
+    # Panic, euphoria and a liquidity crisis are all high-volatility states. Mapped
+    # there rather than muting everything: an empty ensemble produces no votes, and
+    # "no strategy has an opinion" is not the same as "do not trade". The RISK layer
+    # is what should shrink or refuse a position in these regimes, and it does —
+    # volatility widens the required stop, which reduces size.
+    "Panic": "High Volatility",
+    "Euphoria": "High Volatility",
+    "Liquidity Crisis": "High Volatility",
+}
+
+
+def canonical_regime(regime: Optional[str]) -> Optional[str]:
+    """Translate any known regime name into the profile vocabulary.
+
+    Returns None for None and for 'Unknown' — both of which
+    `is_strategy_active_in_regime` treats as permissive, because muting the whole
+    library when the classifier has no answer would stop the system reasoning at
+    exactly the moment a new symbol starts up.
+
+    An unrecognised name is returned unchanged rather than mapped to a guess: a
+    silent default is how the original mismatch survived, and passing it through
+    means the gate simply finds no match and the completeness test flags it.
+    """
+    if regime is None:
+        return None
+    if regime == "Unknown":
+        return None
+    return REGIME_ALIASES.get(regime, regime)
+
+
+def is_strategy_active_in_regime(agent: str, regime: Optional[str]) -> bool:
     """Is this strategy eligible to vote in this regime?
 
     An UNPROFILED strategy returns True and is NOT muted. That is deliberate:
@@ -384,11 +523,18 @@ def is_strategy_active_in_regime(agent: str, regime: str) -> bool:
     ensemble quietly weaker with no signal that anything was missing.
     `profile_completeness()` and `test_every_voting_strategy_has_a_profile`
     surface the gap loudly instead.
+
+    The regime is normalised through `canonical_regime` first — see the note above
+    on the two vocabularies.
     """
     profile = _BY_AGENT.get(agent)
     if profile is None:
         return True
-    return profile.is_active_in(regime)
+    normalised = canonical_regime(regime)
+    if normalised is None:
+        # No usable regime: permissive, same reasoning as `enumerate_candidates`.
+        return True
+    return profile.is_active_in(normalised)
 
 
 def profile_completeness() -> Dict[str, Any]:

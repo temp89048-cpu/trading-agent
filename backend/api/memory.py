@@ -25,7 +25,9 @@ sizing.
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from backend.core.auth import require_write_auth
 from pydantic import BaseModel, Field
 
 from backend.services.ai_memory import generate_learning_report, get_memory_stats
@@ -130,7 +132,7 @@ async def get_report() -> Dict[str, Any]:
     return {"status": "success", "sufficientData": True, "report": report}
 
 
-@router.post("/lesson")
+@router.post("/lesson", dependencies=[Depends(require_write_auth)])
 async def record_lesson(payload: LessonInput) -> Dict[str, Any]:
     """Record an operator-supplied lesson against a symbol.
 

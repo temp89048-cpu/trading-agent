@@ -44,7 +44,9 @@ import os
 import tempfile
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from backend.core.auth import require_write_auth
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +137,7 @@ async def list_tasks() -> List[Dict[str, Any]]:
     return list(_tasks.values())
 
 
-@router.post("/tasks")
+@router.post("/tasks", dependencies=[Depends(require_write_auth)])
 async def create_task(task: Dict[str, Any]) -> Dict[str, Any]:
     """Register a task created by the frontend.
 
@@ -165,7 +167,7 @@ async def create_task(task: Dict[str, Any]) -> Dict[str, Any]:
     return task
 
 
-@router.delete("/tasks/{task_id}")
+@router.delete("/tasks/{task_id}", dependencies=[Depends(require_write_auth)])
 async def cancel_task(task_id: str) -> Dict[str, Any]:
     """Cancel a task. Does NOT close its open position.
 

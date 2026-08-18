@@ -275,7 +275,31 @@ def test_planned_and_profiled_sets_do_not_overlap():
 
 
 def test_spec_coverage_counts():
-    """21 named strategies: 9 implemented and profiled, 16 documented as planned
-    (some spec names map onto one profile, e.g. Trend Following)."""
-    assert len(STRATEGY_PROFILES) == 9
-    assert len(PLANNED_STRATEGIES) == 16
+    """Every named strategy is either IMPLEMENTED with a profile or DOCUMENTED as
+    planned with a specific reason. Nothing is silently absent.
+
+    Counts are asserted as a total rather than per-bucket, because a strategy moving
+    from planned to implemented is progress and should not fail a test. Two moved
+    across in the Sections 14-41 pass (VWAP, VolatilityBreakout) — both because their
+    recorded objection did not apply to what was built. Volume Profile, SMC, ICT and
+    Wyckoff were implemented and then reverted: their objections were correct.
+    """
+    assert len(STRATEGY_PROFILES) + len(PLANNED_STRATEGIES) == 26, (
+        f"{len(STRATEGY_PROFILES)} implemented + {len(PLANNED_STRATEGIES)} planned — "
+        f"a strategy was added or removed without being accounted for in the other bucket"
+    )
+    assert len(STRATEGY_PROFILES) >= 11
+    assert len(PLANNED_STRATEGIES) >= 15
+
+
+def test_every_planned_strategy_states_why_it_is_not_implemented():
+    """Section 18: "The AI should learn when *not* to use each strategy."
+
+    A planned entry with no reason is a TODO; with a reason it is knowledge. This is
+    also the guard that made reverting four implementations the right call — the
+    reasons were already there and already correct.
+    """
+    for name, reason in PLANNED_STRATEGIES.items():
+        assert reason and len(reason) > 40, (
+            f"planned strategy {name!r} has no substantive reason for its absence"
+        )

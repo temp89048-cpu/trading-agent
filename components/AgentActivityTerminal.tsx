@@ -1,15 +1,19 @@
 'use client';
 
 import { useAgentWebSocket } from '@/lib/useAgentWebSocket';
+import { eventTimeLabel } from '@/lib/agentEventStream';
 import { useRef, useEffect } from 'react';
 
 export function AgentActivityTerminal() {
   const { events, isConnected } = useAgentWebSocket();
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    if (containerRef.current) {
+      containerRef.current.scrollTo({
+        top: containerRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
     }
   }, [events]);
 
@@ -42,7 +46,7 @@ export function AgentActivityTerminal() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 font-mono text-[11px] space-y-2 flex flex-col custom-scrollbar">
+      <div ref={containerRef} className="flex-1 overflow-y-auto p-4 font-mono text-[11px] space-y-2 flex flex-col custom-scrollbar">
         {events.length === 0 ? (
           <div className="flex items-center justify-center h-full text-txt2/50 italic">
             Awaiting kernel events...
@@ -55,7 +59,10 @@ export function AgentActivityTerminal() {
             >
               <div className="flex gap-3">
                 <span className="opacity-50 shrink-0 mt-0.5">
-                  {new Date(ev.timestamp).toISOString().split('T')[1].slice(0, -1)}
+                  {/* `new Date(undefined).toISOString()` THROWS a RangeError,
+                      which would have blanked this whole panel the first time an
+                      event arrived without a timestamp. */}
+                  {eventTimeLabel(ev)}
                 </span>
                 <div className="flex-1 min-w-0">
                   <span className="font-bold mr-2 opacity-90 tracking-wider">
@@ -74,7 +81,7 @@ export function AgentActivityTerminal() {
             </div>
           ))
         )}
-        <div ref={bottomRef} className="h-2" />
+        <div className="h-2 shrink-0" />
       </div>
     </div>
   );

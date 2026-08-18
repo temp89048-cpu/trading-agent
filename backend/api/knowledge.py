@@ -24,7 +24,9 @@ made it, and the base rules shipped with the graph are marked as such.
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from backend.core.auth import require_write_auth
 from pydantic import BaseModel, Field
 
 from backend.core.knowledge_graph import get_knowledge_graph
@@ -94,7 +96,7 @@ async def get_implications(state: str) -> Dict[str, Any]:
     }
 
 
-@router.post("/relationship")
+@router.post("/relationship", dependencies=[Depends(require_write_auth)])
 async def add_relationship(payload: RelationshipInput) -> Dict[str, Any]:
     """Assert that one state implies another.
 

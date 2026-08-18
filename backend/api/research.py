@@ -10,7 +10,9 @@ step (spec Section 12's approval gate).
 
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from backend.core.auth import require_write_auth
 from pydantic import BaseModel, Field
 
 from backend.core.backtest_engine import HistoricalBacktestEngine
@@ -57,7 +59,7 @@ async def list_hypotheses(status: Optional[str] = None) -> Dict[str, Any]:
     return {"status": "success", "count": len(rows), "hypotheses": rows}
 
 
-@router.post("/hypotheses/{hypothesis_id}/status")
+@router.post("/hypotheses/{hypothesis_id}/status", dependencies=[Depends(require_write_auth)])
 async def set_hypothesis_status(hypothesis_id: str, payload: HypothesisStatusUpdate) -> Dict[str, Any]:
     """Change a hypothesis's status. THIS IS THE HUMAN APPROVAL GATE.
 
@@ -101,7 +103,7 @@ async def list_research_tasks(open_only: bool = False) -> Dict[str, Any]:
     return {"status": "success", "count": len(rows), "tasks": rows}
 
 
-@router.post("/tasks/{task_id}/finding")
+@router.post("/tasks/{task_id}/finding", dependencies=[Depends(require_write_auth)])
 async def submit_finding(task_id: str, payload: FindingInput) -> Dict[str, Any]:
     """Attach a written finding to a research task.
 
@@ -142,7 +144,7 @@ class BacktestRequest(BaseModel):
     timeframe: str = "1m"
     limit: int = 1000
 
-@router.post("/run")
+@router.post("/run", dependencies=[Depends(require_write_auth)])
 async def run_backtest(req: BacktestRequest) -> Dict[str, Any]:
     try:
         engine = HistoricalBacktestEngine(

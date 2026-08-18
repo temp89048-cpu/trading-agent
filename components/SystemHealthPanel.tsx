@@ -39,10 +39,24 @@ export function SystemHealthPanel() {
   async function refreshServerHealth() {
     setCheckingServerHealth(true);
     try {
-      const res = await fetch('http://localhost:8000/api/health');
+      // Relative, i.e. this app's own /api/health route handler.
+      //
+      // This was `http://localhost:8000/api/health`, which 404s: the FastAPI
+      // backend serves its health check at /api/monitoring, and /api/health
+      // belongs to the Next.js app. So the panel reported "unreachable" from
+      // the catch block below whether or not anything was actually wrong —
+      // an absolute URL replacing a working relative one.
+      const res = await fetch('/api/health');
       if (res.ok) {
         const json = await res.json();
         setServerHealth({ overall: json.overall, checks: json.checks ?? [] });
+      } else {
+        // A non-OK response was previously swallowed: `serverHealth` stayed
+        // null, which renders identically to "not checked yet".
+        setServerHealth({
+          overall: 'unhealthy',
+          checks: [{ label: 'Server health endpoint', ok: false, detail: `HTTP ${res.status}`, latencyMs: 0 }],
+        });
       }
     } catch (err) {
       setServerHealth({ overall: 'unhealthy', checks: [{ label: 'Server health endpoint', ok: false, detail: err instanceof Error ? err.message : 'unreachable', latencyMs: 0 }] });

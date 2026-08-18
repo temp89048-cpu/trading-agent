@@ -40,7 +40,7 @@ the system, and this agent narrows it (from "nothing watches at all" to
 
 import datetime
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from backend.core.agent_base import BaseAgent
 from backend.models.events import (
@@ -192,6 +192,121 @@ class PositionMonitorAgent(BaseAgent):
     @property
     def open_position_count(self) -> int:
         return len(self._open)
+
+    # ------------------------------------------------------------------
+    # Phase 30 / spec Section 13 — read and modify, for the monitoring graph
+    # ------------------------------------------------------------------
+
+    def snapshot_open(self) -> List[Dict[str, Any]]:
+        """Plain-dict view of every watched position.
+
+        THIS AGENT IS THE SINGLE SOURCE OF TRUTH ON WHAT IS OPEN, and the
+        monitoring graph reads through here rather than keeping its own book. Two
+        books would disagree after a restart, and the one that must be right is the
+        one enforcing the stop.
+
+        Returns copies, not `_Tracked` objects: a caller holding a reference could
+        otherwise assign `pos.stop_loss` directly and bypass `tighten_stop`'s
+        widen-refusal, which is the one rule in this phase that must not be
+        bypassable.
+        """
+        out: List[Dict[str, Any]] = []
+        for pos in self._open.values():
+            out.append({
+                "tarId": pos.tar_id,
+                "symbol": pos.symbol,
+                "side": pos.side,
+                "tab": pos.tab,
+                "qty": pos.qty,
+                "entryPrice": pos.entry_price,
+                "stopLoss": pos.stop_loss,
+                "takeProfit": pos.take_profit,
+                "openedAtTs": pos.opened_at.timestamp() if pos.opened_at else None,
+                "peakPrice": pos.peak_price,
+            })
+        return out
+
+    def tighten_stop(self, tar_id: str, new_stop: float) -> Tuple[bool, str]:
+        """Move a stop CLOSER to price. Refuses to move it further away.
+
+        THE MOST IMPORTANT RULE IN PHASE 30.
+
+        Widening a stop increases risk beyond what the Risk Gateway approved and
+        sized the position against. The per-trade risk limit was computed from the
+        entry-to-stop distance, so moving the stop away silently invalidates that
+        computation — the position now risks more than 3% of equity while every
+        record still says it risks 3%.
+
+        It is also the specific mechanism by which a small loss becomes a large
+        one: "give it room to breathe" is a widened stop, and a stop that can be
+        widened when price approaches it is not a stop at all.
+
+        So this is a one-way ratchet, enforced here rather than trusted to callers.
+        The monitoring graph REQUESTS a new stop; this method decides.
+
+        Returns `(applied, reason)`. A refusal is not an error — a trailing rule
+        that proposes a stop already worse than the current one is ordinary.
+        """
+        pos = self._open.get(tar_id)
+        if pos is None:
+            return False, f"no open position with tar_id {tar_id} is being monitored"
+
+        if new_stop is None or new_stop <= 0:
+            return False, f"refusing a non-positive stop ({new_stop!r})"
+
+        current = pos.stop_loss
+        if current is None:
+            # A tracked position with no stop should be impossible — `_register_fill`
+            # requires an approved stop. Accepting one here anyway is strictly safer
+            # than leaving it unprotected, and it is logged loudly.
+            pos.stop_loss = new_stop
+            logger.warning(
+                "Position %s had NO stop; set to %s. This should be unreachable — "
+                "_register_fill requires an approved stop.",
+                pos.symbol, new_stop,
+            )
+            return True, f"position had no stop; set to {new_stop:.8g}"
+
+        # 'buy' means a long: a HIGHER stop is tighter. 'sell' is the mirror.
+        tighter = new_stop > current if pos.side == "buy" else new_stop < current
+
+        if not tighter:
+            return False, (
+                f"refused: {new_stop:.8g} is not tighter than the current "
+                f"{current:.8g} for a {'long' if pos.side == 'buy' else 'short'}. "
+                f"Widening a stop increases risk beyond what was approved and sized "
+                f"against — this is a one-way ratchet."
+            )
+
+        # A stop already through the current price would close instantly at whatever
+        # the next tick is. That is not a tightened stop, it is a market exit
+        # disguised as one, and it must be requested as an EXIT so it is recorded as
+        # a decision rather than as a stop-out.
+        if pos.side == "buy" and pos.peak_price is not None and new_stop >= pos.peak_price:
+            return False, (
+                f"refused: {new_stop:.8g} is at or above the peak price "
+                f"{pos.peak_price:.8g}, so it would fire on the next tick. Request an "
+                f"EXIT instead of disguising one as a stop."
+            )
+        if pos.side == "sell" and pos.peak_price is not None and new_stop <= pos.peak_price:
+            return False, (
+                f"refused: {new_stop:.8g} is at or below the trough price "
+                f"{pos.peak_price:.8g}, so it would fire on the next tick. Request an "
+                f"EXIT instead of disguising one as a stop."
+            )
+
+        pos.stop_loss = new_stop
+        logger.info(
+            "Tightened stop on %s %s: %.8g -> %.8g (entry %s)",
+            pos.side, pos.symbol, current, new_stop, pos.entry_price,
+        )
+        self.record_decision(
+            "stop-tightened",
+            f"{pos.symbol} stop moved {current:.8g} -> {new_stop:.8g} (tighter only).",
+            {"tarId": tar_id, "previousStop": current, "newStop": new_stop},
+            acted=True,
+        )
+        return True, f"stop tightened {current:.8g} -> {new_stop:.8g}"
 
     async def handle_event(self, event: BaseEvent) -> None:
         if isinstance(event, TarApprovedEvent):

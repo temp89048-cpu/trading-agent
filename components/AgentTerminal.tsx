@@ -1,15 +1,21 @@
 'use client';
 
 import { useAgentOS } from '@/lib/useAgentOS';
+import { eventTimeLabel } from '@/lib/agentEventStream';
 import { useRef, useEffect } from 'react';
 
 export function AgentTerminal() {
   const { events, isConnected, clearEvents } = useAgentOS();
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (containerRef.current) {
+      containerRef.current.scrollTo({
+        top: containerRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
   }, [events]);
 
   const getEventColor = (type: string) => {
@@ -40,7 +46,7 @@ export function AgentTerminal() {
         </button>
       </div>
 
-      <div className="bg-bg0 border border-line rounded-md p-2 h-64 overflow-y-auto font-mono text-[10px] flex flex-col gap-1">
+      <div ref={containerRef} className="bg-bg0 border border-line rounded-md p-2 h-64 overflow-y-auto font-mono text-[10px] flex flex-col gap-1">
         {events.length === 0 ? (
           <div className="text-txt2 italic p-2 text-center h-full flex items-center justify-center">
             Listening for AgentOS events...
@@ -49,7 +55,9 @@ export function AgentTerminal() {
           events.slice().reverse().map((ev, i) => (
             <div key={i} className="flex gap-2 hover:bg-bg2/50 px-1 py-0.5 rounded">
               <span className="text-txt2 shrink-0">
-                {new Date(ev.timestamp).toLocaleTimeString([], { hour12: false })}
+                {/* Not `new Date(ev.timestamp)` — events do not all carry a
+                    timestamp, and the absent case rendered "Invalid Date". */}
+                {eventTimeLabel(ev)}
               </span>
               <div className="flex-1 min-w-0">
                 <span className={`font-semibold mr-2 ${getEventColor(ev.event_type)}`}>
@@ -65,7 +73,8 @@ export function AgentTerminal() {
             </div>
           ))
         )}
-        <div ref={bottomRef} />
+        {/* Bottom spacer for padding */}
+        <div className="h-1 shrink-0" />
       </div>
     </div>
   );

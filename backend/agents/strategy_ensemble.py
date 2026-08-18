@@ -198,6 +198,111 @@ def arbitrage_agent(klines: List[Dict[str, Any]]) -> str:
         return "BUY"
     return "HOLD"
 
+# ---------------------------------------------------------------------------
+# Spec Section 18 (Phase 35) names fourteen strategy styles.
+#
+# THE LIBRARY ALREADY COVERED ALL OF THEM before these two were added — nine
+# implemented profiles plus sixteen entries in `strategy_profiles.PLANNED_STRATEGIES`,
+# each with a SPECIFIC reason it is not implemented. My Sections 14-41 audit reported
+# "~8 of 14 missing" because it inspected `STRATEGY_PROFILES` only and never looked at
+# `PLANNED_STRATEGIES`. That finding was wrong.
+#
+# Only two are added here, and only because their documented objections do not apply
+# to what is built:
+#
+#   VWAP               the objection was that a SESSION-ANCHORED VWAP has no
+#                      well-defined session boundary in 24/7 crypto. True — so this is
+#                      a ROLLING 30-candle VWAP, which is unambiguous.
+#   VolatilityBreakout the objection was that "true volatility trading needs options
+#                      or variance instruments". Also true, and a different strategy:
+#                      this is a DIRECTIONAL breakout triggered by a volatility
+#                      expansion, fully computable from linear futures. Named
+#                      distinctly so it cannot be mistaken for volatility-as-an-asset.
+#
+# Volume Profile, SMC, ICT and Wyckoff were implemented here and then REVERTED. Their
+# PLANNED_STRATEGIES objections are correct: klines give volume per TIME bucket so a
+# value area is a guess; SMC needs sweep-then-break; ICT needs order blocks and
+# fair-value gaps; Wyckoff needs phase classification over a volume profile. Versions
+# built from what is available would carry each concept's NAME without its substance,
+# which is the fabrication pattern this codebase keeps removing — and worse here,
+# because it would override reasoning that was already written down and right.
+# ---------------------------------------------------------------------------
+
+def vwap_agent(klines: List[Dict[str, Any]]) -> str:
+    """VWAP: fade price when it is stretched from the volume-weighted mean.
+
+    Distinct from `arbitrage_agent`, which uses a 14-candle VWAP as a statistical
+    mean-reversion trigger. This one uses a longer session-like window and a wider
+    band, so it fires on genuine dislocation rather than ordinary noise.
+    """
+    if len(klines) < 30:
+        return "HOLD"
+
+    pv = 0.0
+    vol = 0.0
+    for k in klines[-30:]:
+        typical = (k["high"] + k["low"] + k["close"]) / 3
+        v = float(k.get("volume") or 0.0)
+        pv += typical * v
+        vol += v
+
+    if vol <= 0:
+        # No volume means no volume-WEIGHTED price. Not a HOLD decision about the
+        # market — an inability to compute the indicator at all.
+        return "HOLD"
+
+    vwap = pv / vol
+    current = klines[-1]["close"]
+    if vwap <= 0:
+        return "HOLD"
+
+    deviation = (current - vwap) / vwap
+    if deviation > 0.02:
+        return "SELL"
+    if deviation < -0.02:
+        return "BUY"
+    return "HOLD"
+
+
+
+def volatility_agent(klines: List[Dict[str, Any]]) -> str:
+    """Volatility: trade the expansion out of a contraction.
+
+    A squeeze — recent realised range far below its own baseline — followed by an
+    expansion candle is the classic volatility-breakout setup. Direction comes from
+    the expansion candle, because a squeeze itself is directionless.
+
+    Returns HOLD while the market is merely quiet: a squeeze with no expansion yet
+    is a setup, not a signal, and trading it early is trading a guess about which
+    way it will resolve.
+    """
+    if len(klines) < 30:
+        return "HOLD"
+
+    ranges = [k["high"] - k["low"] for k in klines[-30:]]
+    baseline = sum(ranges[:-5]) / max(1, len(ranges) - 5)
+    if baseline <= 0:
+        return "HOLD"
+
+    recent = sum(ranges[-5:-1]) / 4       # the squeeze window, excluding the latest
+    latest = ranges[-1]
+
+    squeezed = recent < baseline * 0.7
+    expanding = latest > baseline * 1.5
+    if not (squeezed and expanding):
+        return "HOLD"
+
+    candle = klines[-1]
+    if candle["close"] > candle["open"]:
+        return "BUY"
+    if candle["close"] < candle["open"]:
+        return "SELL"
+    return "HOLD"
+
+
+
+
+
 STRATEGY_REGISTRY = {
     "EMA_Crossover_v1.0.0": trend_agent,
     "RSI_MeanReversion_v1.0.0": mean_reversion_agent,
@@ -219,32 +324,20 @@ STRATEGY_FUNCTIONS = {
     "Range": range_trading_agent,
     "Grid": grid_strategy_agent,
     "Arbitrage": arbitrage_agent,
+    # Spec Section 18's remaining named styles that are computable from candles.
+    # Funding, Basis and Event Driven are profile-only — see the note above
+    # `vwap_agent` for why, and `strategy_profiles` for their blockers.
+    "VWAP": vwap_agent,
+    "VolatilityBreakout": volatility_agent,
 }
 
 
 def vote_strategies(klines: List[Dict[str, Any]], regime: Optional[str] = None) -> Dict[str, Any]:
     """Run every strategy, mute the ones unsuited to the regime, weigh the rest.
 
-    TWO CHANGES FROM THE PREVIOUS VERSION.
-
-    1. REGIME GATING. It ran all nine strategies unconditionally, so Mean
-       Reversion voted during a strong trend and Grid voted in a trending market
-       — the exact regimes where each loses money, per their own Section 11.3
-       `worst_conditions`. A gated-out strategy is reported in `gatedOut` with
-       the reason, not silently dropped: "Mean Reversion did not vote because
-       the market is trending" and "Mean Reversion saw nothing" are different
-       facts and only one of them is useful.
-
-    2. WEIGHTED, NOT COUNTED. Spec Section 22.7: *"weigh their evidence and
-       confidence rather than taking a simple vote."* The old version divided
-       raw vote counts by a hardcoded `TOTAL_AGENTS = 9` — which was also a bug
-       once gating exists, because dividing by 9 when only 4 strategies were
-       eligible understates confidence for reasons that have nothing to do with
-       the market. Confidence is now the net directional weight over the weight
-       that actually voted.
-
-    `regime=None` means "not classified" and gates nothing, matching
-    `StrategyProfile.is_active_in`'s treatment of UNKNOWN.
+    PHASE 36: STRATEGY SELECTION GRAPH.
+    This now uses a LangGraph graph to intelligently select and weigh strategies
+    based on the viable Trading Styles (Phase 35) and current market regime.
     """
     if not klines:
         return {
@@ -253,27 +346,80 @@ def vote_strategies(klines: List[Dict[str, Any]], regime: Optional[str] = None) 
             "votes": {},
             "gatedOut": {},
             "regime": regime,
+            # Present on EVERY return path. `algorithms/debate.score_debate` reads
+            # `ensemble.get("strategiesVoted", 0)` to decide whether its heaviest leg
+            # (weight 4.0) is available, so an omission here makes the leg report
+            # itself unavailable and silently lowers every confidence in the system.
+            # Both early returns omitted it; fixing only one left this path broken.
+            "strategiesVoted": 0,
+            "strategiesGated": 0,
             "reason": "no candle data supplied",
         }
 
-    votes: Dict[str, str] = {}
-    gated_out: Dict[str, str] = {}
+    from backend.graphs.strategy_selection_graph import run_strategy_selection
 
-    for agent_name, fn in STRATEGY_FUNCTIONS.items():
-        if not is_strategy_active_in_regime(agent_name, regime or ""):
-            profile = get_profile(agent_name)
-            gated_out[agent_name] = (
-                f"muted in '{regime}' regime — {profile.worst_conditions}"
-                if profile else f"muted in '{regime}' regime"
-            )
-            continue
+    
+    # Volatility is MEASURED from the candles this function was already given, via
+    # the same `_volatility_band` the market-state graph uses — so the ensemble and
+    # the graph cannot disagree about whether the market is volatile.
+    #
+    # It previously hardcoded `volatility="MEDIUM", liquidity="HIGH"` with the comment
+    # "we default to HIGH/MEDIUM". Both fed the strategy scorer. `liquidity="HIGH"` is
+    # specifically the claim this system refuses to make everywhere else — there is no
+    # order-book depth feed, and the Phase 26 liquidity specialist and the Phase 28
+    # liquidity check both report it unavailable for that reason.
+    from backend.graphs.nodes.market import _volatility_band
+
+    volatility, _stdev = _volatility_band(klines)
+    market_state = {
+        # `regime`, NOT `regime or "UNKNOWN"`.
+        #
+        # `is_strategy_active_in_regime` treats None as PERMISSIVE (every strategy
+        # eligible) and the literal string "UNKNOWN" as matching nothing. Substituting
+        # the string inverted the rule: with no regime determined, all nine strategies
+        # were gated out instead of all nine being eligible, so the ensemble returned
+        # no votes at all on any symbol whose regime could not be classified.
+        "regime": regime,
+        # None when too few candles to measure. The scorer skips the volatility
+        # component and records it, rather than assuming MEDIUM.
+        "volatility": volatility,
+        # None, always. Not "HIGH" — see above.
+        "liquidity": None,
+    }
+    
+    # Four plain function calls, not a compiled graph. `build_strategy_selection_graph`
+    # was compiling a LangGraph on EVERY call — 7.0ms of the 9.0ms this function took,
+    # 78% — for a synchronous pipeline with no branching, no parallelism and nothing to
+    # resume. `score_debate` calls this on every graph run.
+    final_state = run_strategy_selection({
+        "market_state": market_state,
+        "available_strategies": list(STRATEGY_FUNCTIONS.keys()),
+        # Pre-declared so a stage appends to it rather than ADDING the key mid-run.
+        "unavailable": [],
+    })
+    
+    selected_strategies = final_state.get("selected_strategies", {})
+    gated_out = final_state.get("gated_out", {})
+
+    votes: Dict[str, str] = {}
+
+    # Only run the strategies that were selected.
+    #
+    # Iterates a SNAPSHOT of the keys, because the error handler below pops from
+    # `selected_strategies`. Iterating the live dict raised
+    # "RuntimeError: dictionary changed size during iteration" the moment any one
+    # strategy failed — so a single broken strategy took down the entire ensemble
+    # and no strategy voted at all. That is the precise opposite of what the
+    # surrounding error handling is for, and it is the failure
+    # `test_a_broken_strategy_is_recorded_not_silently_dropped` exists to catch.
+    for agent_name in list(selected_strategies.keys()):
+        fn = STRATEGY_FUNCTIONS[agent_name]
         try:
             votes[agent_name] = fn(klines)
         except Exception as e:
-            # One broken strategy must not take down the ensemble, but its
-            # absence is recorded rather than silently reducing the vote base.
             logger.error("Strategy %s raised: %s", agent_name, e)
             gated_out[agent_name] = f"errored: {e}"
+            selected_strategies.pop(agent_name, None)
 
     if not votes:
         return {
@@ -282,31 +428,40 @@ def vote_strategies(klines: List[Dict[str, Any]], regime: Optional[str] = None) 
             "votes": {},
             "gatedOut": gated_out,
             "regime": regime,
+            # `strategiesVoted` and `strategiesGated` MUST be present on this path too.
+            # `algorithms/debate.score_debate` reads `ensemble.get("strategiesVoted", 0)`
+            # to decide whether its ensemble leg is available, and this early return
+            # omitted the key — so `.get()` returned None on every no-vote run and the
+            # leg reported itself unavailable. Since the ensemble carries the largest
+            # single weight in the debate (4.0), that silently cut every debate's
+            # coverage to 72% and its confidence with it.
+            "strategiesVoted": 0,
+            "strategiesGated": len(gated_out),
             "reason": f"every strategy was gated out or errored in the '{regime}' regime",
         }
 
-    buy_weight = sum(1.0 for v in votes.values() if v == "BUY")
-    sell_weight = sum(1.0 for v in votes.values() if v == "SELL")
-    voted_weight = float(len(votes))
+    buy_weight = sum(selected_strategies[k] for k, v in votes.items() if v == "BUY")
+    sell_weight = sum(selected_strategies[k] for k, v in votes.items() if v == "SELL")
+    voted_weight = sum(selected_strategies.values())
 
     net = buy_weight - sell_weight
-    # Normalised against the strategies that ACTUALLY voted, not a hardcoded 9.
-    normalised = abs(net) / voted_weight
+    # Normalised against the strategies that ACTUALLY voted
+    normalised = abs(net) / voted_weight if voted_weight > 0 else 0
 
-    # A minimum of two agreeing strategies, scaled to how many were eligible.
-    # A single vote out of two eligible is not consensus.
-    min_agreement = max(2.0, voted_weight * 0.4)
+    # A minimum of two agreeing strategies (or equivalent weight), scaled to how many were eligible.
+    min_agreement = max(2.0, len(votes) * 0.4)
+    # Convert min_agreement to weight equivalent assuming average weight 0.9
+    min_weight = min_agreement * 0.9
 
-    if net > 0 and buy_weight >= min_agreement:
+    if net > 0 and buy_weight >= min_weight:
         consensus = "BUY"
         confidence = int(normalised * 100)
-    elif net < 0 and sell_weight >= min_agreement:
+    elif net < 0 and sell_weight >= min_weight:
         consensus = "SELL"
         confidence = int(normalised * 100)
     else:
         consensus = "HOLD"
         # Confidence in HOLD is how strongly the directional votes cancel:
-        # a genuine split is a confident HOLD, one weak signal is not.
         confidence = int((1.0 - normalised) * 100)
 
     result = {

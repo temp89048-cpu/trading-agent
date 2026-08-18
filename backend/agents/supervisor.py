@@ -11,8 +11,48 @@ class SupervisorDecision(BaseModel):
     risk_validation: Optional[RiskValidation] = None
 
 def review_trade_request(request: Dict[str, Any]) -> SupervisorDecision:
+    """DO NOT USE. Raises. The real gate is `agents/supervisor_agent.py`.
+
+    This module is a SECOND, WEAKER implementation of the execution gate that
+    nothing calls. It was found with zero callers during a dead-code audit, and
+    it is kept only so that this warning exists where someone would look.
+
+    Wiring it up would bypass every control the real Supervisor enforces. It has
+    none of:
+
+      * the un-overridable leverage ceiling (`max_leverage_ceiling`) — it never
+        looks at leverage at all;
+      * the mandatory stop-loss check (CLAUDE.md invariant 3) — it cannot
+        produce a stop, so a position opened through it would have none;
+      * the CIO's correlated-exposure cap;
+      * the operator kill switch (`may_open_new_position`);
+      * refusal on missing inputs — its `validate_trade` call passes whatever
+        dict it was handed, so absent equity or candles simply skip checks.
+
+    Its `side == 'sell'` branch also returns `approved=True` unconditionally
+    before any risk evaluation. That is correct for CLOSING a position
+    (invariant 4: exits are never blocked) but this function cannot distinguish
+    a close from OPENING a short — so routing shorts through it would approve
+    them with no checks whatsoever.
+
+    Raising is deliberate rather than deleting the file: a deleted duplicate
+    teaches nobody, and the same shortcut gets rebuilt. A loud failure at the
+    moment of misuse is the useful outcome.
     """
-    The main execution gate. Coordinates risk rules and cross-agent signals.
+    raise NotImplementedError(
+        "agents/supervisor.py::review_trade_request is a dead, weaker duplicate of the "
+        "execution gate and must not be used. Route trade authorization through "
+        "agents/supervisor_agent.py (SupervisorAgent, or request_trade_authorization for the "
+        "task-based path), which enforces the leverage ceiling, the mandatory stop-loss, the "
+        "correlated-exposure cap and the operator kill switch. See this function's docstring."
+    )
+
+
+def _unused_original_implementation(request: Dict[str, Any]) -> SupervisorDecision:
+    """The original body, preserved unreachable for reference only.
+
+    Kept so the docstring above can be checked against what this actually did,
+    rather than asking a reader to trust a summary of deleted code.
     """
     conflict_notes = []
     

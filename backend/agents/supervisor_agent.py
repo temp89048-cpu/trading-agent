@@ -308,7 +308,7 @@ class SupervisorAgent(BaseAgent):
         if direction not in ("LONG", "SHORT"):
             await self._refuse(symbol, f"debate concluded {direction} — no directional trade to make")
             return
-
+            
         side = "buy" if direction == "LONG" else "sell"
 
         # --- price: real, or nothing ------------------------------------
@@ -326,6 +326,26 @@ class SupervisorAgent(BaseAgent):
                 f"and therefore a stop-loss",
             )
             return
+            
+        # --- PHASE 38 & 39: Regime Detection and Dynamic Thresholding -----
+        from backend.agents.regime_agent import detect_market_regime
+        from backend.algorithms.dynamic_thresholding import get_required_confidence, get_regime_risk_multiplier
+        
+        regime = detect_market_regime(klines)
+        required_confidence = get_required_confidence(regime)
+        
+        if debate.get("confidence", 0) < required_confidence:
+            await self._refuse(symbol, f"Confidence {debate.get('confidence', 0):.2f} does not meet the threshold {required_confidence:.2f} required for regime '{regime}'")
+            return
+            
+        # --- PHASE 37: Bayesian Expected Value Evaluation ------------------
+        from backend.algorithms.bayesian_engine import calculate_trade_probabilities
+        bayesian_probs = calculate_trade_probabilities(debate)
+        if bayesian_probs["expected_value"] <= 0:
+            await self._refuse(symbol, f"Bayesian evaluation rejected trade: Expected Value is {bayesian_probs['expected_value']:.3f} (P(Profit)={bayesian_probs['p_profit']:.2f})")
+            return
+        # Record the probabilities into the debate dict so it can be logged downstream
+        debate["bayesian_probs"] = bayesian_probs
 
         atr = calculate_atr(klines)
         sltp = compute_stop_loss_take_profit(price, atr, side)
@@ -345,20 +365,20 @@ class SupervisorAgent(BaseAgent):
             )
             return
 
-        # Risk fraction from half-Kelly where a measured win rate exists,
-        # otherwise the fixed fraction. Kelly can only reduce the size here,
-        # never raise it above settings.RISK_PER_TRADE — see kelly_risk_fraction.
-        sizing = kelly_risk_fraction(
-            win_prob=self._measured_win_rate(),
-            # 2:1 is what the 1.5-ATR stop / 3.0-ATR target implies.
-            payoff_ratio=ATR_TARGET_MULTIPLIER / ATR_STOP_MULTIPLIER,
-            fallback=settings.RISK_PER_TRADE,
-        )
-        if sizing["fraction"] <= 0:
-            await self._refuse(symbol, f"sizing returned zero risk: {sizing['detail']}")
+        # --- PHASE 40: Position Sizing AI -----------------------------
+        from backend.core.risk_manager import calculate_dynamic_risk
+        
+        regime_multiplier = get_regime_risk_multiplier(regime)
+        base_risk = settings.RISK_PER_TRADE
+        ev = bayesian_probs["expected_value"]
+        
+        final_risk_fraction = calculate_dynamic_risk(base_risk, regime_multiplier, ev)
+
+        if final_risk_fraction <= 0:
+            await self._refuse(symbol, f"dynamic sizing returned zero risk for EV {ev:.3f} in regime {regime}")
             return
 
-        size = calculate_position_size(equity, price, atr, sizing["fraction"])
+        size = calculate_position_size(equity, price, atr, final_risk_fraction)
         if size <= 0:
             await self._refuse(
                 symbol,

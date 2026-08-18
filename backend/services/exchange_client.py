@@ -39,7 +39,30 @@ class ExchangeClient:
 
         if use_testnet:
             self.exchange.set_sandbox_mode(True)
-            logger.info("Initialized CCXT Exchange Client (Binance Futures TESTNET)")
+            # DO NOT RELY ON TESTNET AS THE SAFETY GATE.
+            #
+            # Binance has DEPRECATED futures testnet via ccxt's sandbox mode.
+            # Observed at runtime on 2026-08-13:
+            #
+            #   "binance testnet/sandbox mode is not supported for futures
+            #    anymore ... consider using the demo trading instead"
+            #
+            # So with defaultType='future', sandbox mode no longer gives a
+            # working paper venue — private calls (fetch_balance, and therefore
+            # any order) fail rather than executing against a test account.
+            #
+            # It fails CLOSED, which is the right direction: ccxt raises instead
+            # of quietly routing to mainnet. But an operator who believes
+            # "USE_TESTNET=true protects me" is relying on something that no
+            # longer functions. The real gate is LIVE_TRADING=false, which puts
+            # the ExecutionAgent in simulation mode and makes no exchange calls
+            # at all.
+            logger.warning(
+                "Initialized CCXT Binance FUTURES with sandbox mode requested — but Binance "
+                "no longer supports futures testnet through ccxt, so private calls will FAIL. "
+                "Do not treat USE_TESTNET as the safety gate; LIVE_TRADING=false is the gate "
+                "that actually prevents exchange orders."
+            )
         else:
             logger.warning(
                 "Initialized CCXT Exchange Client (Binance Futures LIVE — "

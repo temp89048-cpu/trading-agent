@@ -17,7 +17,9 @@ routes store and report progress; they do not size trades.
 
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
+
+from backend.core.auth import require_write_auth
 
 from backend.models.types import Mission
 from backend.services import mission_store
@@ -31,14 +33,14 @@ async def get_missions() -> List[Dict[str, Any]]:
     return await mission_store.get_missions()
 
 
-@router.post("", response_model=Dict[str, Any])
+@router.post("", response_model=Dict[str, Any], dependencies=[Depends(require_write_auth)])
 async def create_mission(mission: Mission) -> Dict[str, Any]:
     """Create or replace a full mission (upsert by `id`)."""
     await mission_store.save_mission(mission)
     return {"status": "success", "mission_id": mission.id}
 
 
-@router.patch("", response_model=Dict[str, Any])
+@router.patch("", response_model=Dict[str, Any], dependencies=[Depends(require_write_auth)])
 async def update_mission(
     id: str = Body(...),
     status: str = Body(None),
@@ -68,7 +70,7 @@ async def update_mission(
     return {"status": "success", "mission_id": id, "updated": sorted(updates)}
 
 
-@router.delete("", response_model=Dict[str, Any])
+@router.delete("", response_model=Dict[str, Any], dependencies=[Depends(require_write_auth)])
 async def delete_mission(id: str) -> Dict[str, Any]:
     """Delete a mission by id."""
     await mission_store.delete_mission(id)

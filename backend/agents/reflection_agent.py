@@ -14,99 +14,66 @@ import datetime
 
 logger = logging.getLogger(__name__)
 
-async def analyze_reflection(receipt: Dict[str, Any]) -> str:
-    """Write a reflection note for a closed trade — win or loss.
-
-    TWO BUGS FIXED HERE.
-
-    1. IT ASSUMED EVERY TRADE WAS A LOSS. It was named `analyze_mistake`, said
-       "Strategies that failed" unconditionally, and ended with
-       `f"We lost ${abs(pnl):.2f}"`. Spec Section 12 requires a reflection on
-       every COMPLETED trade, not just losing ones — and since the Hypothesis
-       agent now routes winners through here too, a profitable trade produced a
-       note reading "We lost $120.00". Learning only from losses also biases the
-       system toward explaining failure.
-
-    2. IT LOGGED A CLAIM IT DIDN'T ACT ON. The LLM branch logged
-       "LLM API Key found, skipping deterministic block in favor of LLM
-       (Simulated)" while the actual call was commented out and the deterministic
-       note was used regardless. So the log said the reflection came from a model
-       when it did not. The branch now states plainly that no LLM path exists in
-       the backend rather than implying one ran.
-
-    The recommendation line is also no longer unconditional: it used to always
-    advise decreasing confidence in the strategies involved, which on a winning
-    trade is precisely backwards.
-    """
-    symbol = receipt.get("symbol", "UNKNOWN")
-    side = receipt.get("side", "buy")
-    pnl = float(receipt.get("pnl", 0.0))
-    strategies = receipt.get("strategies", []) or []
-    exit_reason = receipt.get("exit_reason")
-    held = receipt.get("held_seconds")
-    won = pnl >= 0
-
-    parts: List[str] = []
-
-    outcome = "gained" if won else "lost"
-    parts.append(f"{symbol} {side.upper()} closed: {outcome} ${abs(pnl):.2f}.")
-
-    if exit_reason:
-        parts.append(f"Exit reason: {exit_reason}.")
-    if held is not None:
-        parts.append(f"Held {float(held):.0f}s.")
-
-    if strategies:
-        label = "Strategies active" if won else "Strategies active at the loss"
-        parts.append(f"{label}: {', '.join(strategies)}.")
-
-        # These read as observations rather than conclusions, because one trade
-        # cannot establish which of several active strategies was responsible.
-        if not won:
-            if "trend" in strategies and "mean_reversion" not in strategies:
-                parts.append(
-                    "A trend entry that lost is consistent with the market mean-reverting shortly "
-                    "after entry — worth checking against the regime at entry."
-                )
-            elif "breakout" in strategies:
-                parts.append(
-                    "A breakout entry that lost is consistent with a false breakout; the "
-                    "false-breakout rate is the figure to check."
-                )
-    else:
-        parts.append("No strategies were logged for this trade, so attribution is not possible.")
-
-    # Directional, and only where the evidence supports it. A single trade is
-    # weak evidence either way, which the wording reflects.
-    if won:
-        parts.append(
-            "Recommendation: none from a single winning trade. Whether these conditions are "
-            "repeatable is a question for the research queue, not a reason to weight up."
-        )
-    else:
-        parts.append(
-            "Recommendation: check whether losses cluster in this regime before changing any "
-            "weighting. One loss is not evidence of a broken strategy."
-        )
-
-    reflection_note = " ".join(parts)
-
-    # LLM path: not implemented in the backend, and said so rather than implied.
-    if os.getenv("OPENAI_API_KEY"):
-        logger.debug(
-            "OPENAI_API_KEY is set, but the backend has no LLM reflection path — this note is "
-            "deterministic. The model-backed reflection runs on the TypeScript side "
-            "(lib/reflectionAgent.ts, prompt REFLECTION_V1)."
-        )
-            
-    logger.info(f"Reflection Agent generated note for {symbol}: {reflection_note}")
-    return reflection_note
-
+# The legacy analyze_reflection function has been replaced by the LangGraph
+# reflection_graph.py, which maintains determinism but executes as a proper graph.
 
 # Kept so existing callers (`services/ai_memory`, and this module's own
-# `_reflect_on_close`) keep working. The old name was part of the bug: calling
-# it `analyze_mistake` is what made "every trade is a loss" feel natural.
-analyze_mistake = analyze_reflection
+# `_reflect_on_close`) keep working, but modified to invoke the graph.
+async def analyze_mistake(receipt: Dict[str, Any]) -> str:
+    from backend.graphs.reflection_graph import get_reflection_graph
+
+    # Compiled ONCE and reused. It was rebuilt per call, which costs a full LangGraph
+    # compile each time — the same waste that made `vote_strategies` 78% compile
+    # overhead before it was measured. Rarer here (once per closed trade) but free to
+    # fix.
+    app = get_reflection_graph()
+
+    # NO thread_id is passed, and that is a correction rather than a simplification.
+    #
+    # It used to pass `config={"configurable": {"thread_id": f"reflection_{trade_id}"}}`
+    # with the comment "ensures we don't cross-contaminate state across trades". That
+    # is not what a thread_id does. It selects a CHECKPOINT thread — and this graph is
+    # compiled with no checkpointer, so the id was inert. Every `ainvoke` already
+    # starts from the state passed in, so isolation came from that, not from the
+    # config.
+    #
+    # A comment claiming a safety property the code does not provide is worse than no
+    # comment: it stops the next reader from checking.
+    final_state = await app.ainvoke({"trade_receipt": receipt})
+    
+    lesson = final_state.get("lesson", "No lesson generated.")
+    logger.info(f"Reflection Graph generated note for {receipt.get('symbol')}: {lesson}")
+    return lesson
+
+
+# Confidence calibration bounds. Capped so one large trade cannot dominate the
+# series — an uncapped delta would let a single outsized win push calibration far
+# enough that the next several trades could not correct it.
+CALIBRATION_CAP = 5.0
+# Dollars of realised P&L per point of calibration movement.
+CALIBRATION_SCALE = 100.0
+
+
+def calibration_delta(realized_pnl: float) -> float:
+    """Confidence calibration movement from one closed trade.
+
+    Shared by `ReflectionAgent` and `graphs/reflection_graph.py`. It lived inline in
+    both, copied verbatim — and this number feeds `ConfidenceAgent`, which feeds
+    position sizing, so two copies that could drift is a real hazard rather than a
+    tidiness point.
+
+    It replaced a constant `-5.0` applied to every trade including winners, which
+    drove calibration monotonically downward forever regardless of performance.
+
+    A KNOWN LIMITATION, stated rather than hidden: this is driven by P&L MAGNITUDE,
+    not by whether the prediction was correct. A lucky win on a wrong-direction read
+    still raises confidence. Spec Section 16's example ties calibration to
+    prediction correctness ("Prediction: Correct · Entry: Too early"), which needs
+    the predicted direction recorded at entry and compared at close — that data is
+    not currently carried on `POSITION_CLOSED`. Fixing it properly means extending
+    that event, not adjusting this formula.
+    """
+    return max(-CALIBRATION_CAP, min(CALIBRATION_CAP, realized_pnl / CALIBRATION_SCALE))
 
 
 class ReflectionAgent(BaseAgent):
@@ -255,12 +222,10 @@ class ReflectionAgent(BaseAgent):
 
         note = await analyze_mistake(receipt)
 
-        # Confidence calibration delta, derived rather than hardcoded. It used
-        # to be a constant -5.0 on every trade, including winners — which
-        # would drive calibration monotonically downward forever regardless of
-        # actual performance. Sign follows the outcome; magnitude is capped so
-        # one large trade can't dominate the series.
-        delta = max(-5.0, min(5.0, event.realized_pnl / 100.0))
+        # Extracted to `calibration_delta` below and shared with
+        # `graphs/reflection_graph.py`, which had copied the expression verbatim.
+        # Two copies of a rule that feeds position sizing is one too many.
+        delta = calibration_delta(event.realized_pnl)
 
         rationale = (
             f"{event.symbol} {event.side} closed at {event.exit_price:.6g} from "

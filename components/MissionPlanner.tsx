@@ -14,7 +14,16 @@ import { usePortfolio } from './Portfolio';
 import { useMarketData } from './MarketData';
 import { uid } from '@/lib/storage';
 
-const API_BASE = 'http://localhost:8000';
+// Empty string = same origin, i.e. this app's own /api/missions route handler.
+//
+// This was hardcoded to 'http://localhost:8000', which breaks in any deployment
+// that is not the developer's machine and needed CORS to work even there.
+// /api/missions exists on BOTH servers with the same shape, so the same-origin
+// route is used: it needs no CORS, no configured host, and no Postgres.
+//
+// To drive the FastAPI backend instead, set NEXT_PUBLIC_BACKEND_URL and change
+// this to BACKEND_BASE from lib/backendConfig.
+const API_BASE = '';
 import {
   evaluateMission,
   scoreMissionAlignment,

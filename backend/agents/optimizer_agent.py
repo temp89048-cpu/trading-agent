@@ -81,3 +81,25 @@ def optimize_strategy(symbol: str, strategy_name: str, klines: List[Dict[str, An
         "best_metrics": best_result,
         "formatted_output": formatted_output
     }
+
+
+# ---------------------------------------------------------------------------
+# UNWIRED — zero callers, and it must stay that way until a human gate exists.
+#
+# `optimize_strategy` searches strategy parameters for better historical
+# performance. Wiring its output into live strategy configuration would BE spec
+# Section 12's forbidden path:
+#
+#     Loss -> AI rewrites strategy -> Live Trading
+#
+# An optimizer is not dangerous because it is wrong; it is dangerous because it
+# is persuasive. It reliably finds parameters that would have worked on the data
+# it was given, which is overfitting with a confidence figure attached.
+#
+# The legitimate route already exists: run it as RESEARCH, record the result as a
+# hypothesis via `services/research_store.add_hypothesis` (status 'proposed'),
+# and let a human validate and apply it through
+# POST /api/research/hypotheses/{id}/status. Until it is called that way it stays
+# unwired, and `tests/test_learning_pipeline.py` asserts no learning module can
+# import anything that writes trading configuration.
+# ---------------------------------------------------------------------------

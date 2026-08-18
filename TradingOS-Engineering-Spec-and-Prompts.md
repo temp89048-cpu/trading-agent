@@ -109,7 +109,6 @@ governance.
 8. Research Driven
 9. Risk First
 10. Evidence Based
-```
 
 ---
 

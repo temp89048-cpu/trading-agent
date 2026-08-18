@@ -31,7 +31,13 @@ confidence produces systematically oversized positions.
 import logging
 from typing import Any, Dict, List
 
-from backend.algorithms.probability import bayesian_update, calibrate_confidence
+from backend.algorithms.probability import (
+    MIN_TRADES_FOR_ACCURACY,
+    bayesian_update,
+    calibrate_confidence,
+    measured_accuracy,
+    volatility_penalty_from_closes,
+)
 from backend.core.agent_base import BaseAgent
 from backend.models.events import (
     BaseEvent,
@@ -51,9 +57,9 @@ logger = logging.getLogger(__name__)
 # overconfidence is most likely.
 ASSUMED_ACCURACY_WITHOUT_HISTORY = 0.55
 
-# Below this many resolved trades, measured accuracy is noise. 20 is not a
-# statistical threshold, it is a floor to stop a 3-win streak reading as 100%.
-MIN_TRADES_FOR_ACCURACY = 20
+# MIN_TRADES_FOR_ACCURACY is imported from `algorithms/probability`, not redefined
+# here. It was defined in both places, and two copies of a threshold that decides
+# whether a win rate counts as measured is one copy too many.
 
 
 class ConfidenceAgent(BaseAgent):
@@ -233,35 +239,30 @@ class ConfidenceAgent(BaseAgent):
         )
 
     def _measured_accuracy(self) -> tuple[float, str]:
-        """Win rate from the real trade ledger, or a conservative assumption."""
+        """Win rate from the real trade ledger, or a conservative assumption.
+
+        The ledger read itself lives in `algorithms/probability.measured_accuracy`,
+        shared with the Phase 27 Supervisor node. Two components computing a hit
+        rate from one ledger is how they come to report different accuracies for
+        the same history, and both numbers feed position sizing.
+
+        The substitution stays HERE rather than in the shared helper, because it is
+        this agent's requirement and not a property of the data: a calibration
+        stage must always emit a calibrated number, so with no sample it uses a
+        conservative prior. The Supervisor answering "what is the probability?"
+        must return None instead, and the shared helper returning None is what
+        lets both be correct.
+        """
         try:
             stats = get_memory_stats() or {}
         except Exception as e:
             logger.warning("Could not read memory stats: %s", e)
             return ASSUMED_ACCURACY_WITHOUT_HISTORY, "history unreadable, assuming conservative accuracy"
 
-        # `get_memory_stats()` returns the whole memory document, and the
-        # counters live under "global_stats" — not at the top level. Reading
-        # them from the root returned None every time, so this silently always
-        # fell back to ASSUMED_ACCURACY_WITHOUT_HISTORY and the real win rate
-        # was never used. Falling back to the root as well keeps it working if
-        # the shape is ever flattened.
-        global_stats = stats.get("global_stats") or stats
-        total = global_stats.get("total_trades") or global_stats.get("totalTrades") or 0
-        wins = global_stats.get("wins") or global_stats.get("winning_trades") or 0
-
-        if not total or total < MIN_TRADES_FOR_ACCURACY:
-            return (
-                ASSUMED_ACCURACY_WITHOUT_HISTORY,
-                f"only {total} resolved trade(s), need {MIN_TRADES_FOR_ACCURACY} to measure accuracy",
-            )
-
-        rate = wins / total
-        # Clamped: a 100% measured win rate over a small sample is a sampling
-        # artefact, and letting it through would make calibration amplify
-        # confidence instead of tempering it.
-        rate = max(0.2, min(0.9, rate))
-        return rate, f"measured over {total} trades"
+        rate, note = measured_accuracy(stats)
+        if rate is None:
+            return ASSUMED_ACCURACY_WITHOUT_HISTORY, note
+        return rate, note
 
     async def _volatility_penalty(self, symbol: str) -> tuple[float, str]:
         """Higher realised volatility means a larger penalty.
@@ -269,29 +270,13 @@ class ConfidenceAgent(BaseAgent):
         Unavailable data returns the MAXIMUM penalty, not zero. Treating an
         unknown volatility regime as calm is the assumption most likely to
         produce an oversized position at the worst moment.
+
+        This agent fetches its own candles because it is triggered by an event and
+        holds no market snapshot. The Supervisor node passes the closes it already
+        has, which is why the maths lives in a pure shared function.
         """
         klines = await fetch_klines(symbol, "15m", limit=50)
-        if len(klines) < 20:
-            return 0.30, f"volatility unknown ({len(klines)} candles) — maximum penalty applied"
-
-        closes = [float(k["close"]) for k in klines]
-        returns = [
-            (closes[i] - closes[i - 1]) / closes[i - 1]
-            for i in range(1, len(closes))
-            if closes[i - 1]
-        ]
-        if not returns:
-            return 0.30, "no usable returns — maximum penalty applied"
-
-        mean = sum(returns) / len(returns)
-        variance = sum((r - mean) ** 2 for r in returns) / len(returns)
-        stdev = variance ** 0.5
-
-        # 1% per-candle stdev on 15m candles is already brisk; scale so that
-        # maps to roughly a 0.2 penalty, capped at 0.4 so calibration can
-        # never zero out a genuine signal on volatility alone.
-        penalty = min(0.4, stdev * 20)
-        return penalty, f"per-candle stdev {stdev * 100:.2f}%"
+        return volatility_penalty_from_closes([float(k["close"]) for k in klines])
 
 
 def get_confidence_agent() -> ConfidenceAgent:
