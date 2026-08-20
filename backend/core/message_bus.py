@@ -29,11 +29,67 @@ class MessageBus:
         self._subscribers: Dict[str, List[Callable]] = {}
 
     def subscribe(self, topic: str, callback: Callable) -> None:
-        """Subscribe to a specific EventType string, or WILDCARD_TOPIC for all."""
+        """Subscribe to a specific EventType string, or WILDCARD_TOPIC for all.
+
+        IDEMPOTENT. Subscribing the same callable to the same topic twice is a no-op.
+
+        WHY, RATHER THAN APPENDING BLINDLY
+        ----------------------------------
+        Handling one event twice with the same handler is never what anyone wants, and
+        the consequences here are not cosmetic: the supervisor would evaluate every
+        signal twice and could submit two trade requests for one decision.
+
+        This codebase already treats double-subscription as dangerous and guards
+        against it by hand in several places — `analysis._subscribed`,
+        `execution_service._subscribed`, and `trigger_worker.subscribe`, whose
+        docstring spells out that "subscribing twice would evaluate every tick twice,
+        and the second evaluation would see the baseline the first one just reset — so
+        half the triggers would silently vanish rather than duplicate, which is the
+        harder bug to notice".
+
+        Those guards are per-caller, so each new subscriber has to remember. The
+        hazard belongs here instead.
+
+        Found via `BaseAgent.rebind_bus`: restoring a simulation-rebound agent
+        re-subscribed it on the global bus, taking `DEBATE_CONCLUDED` from one handler
+        to two. Nothing raised.
+        """
         if topic not in self._subscribers:
             self._subscribers[topic] = []
+        if callback in self._subscribers[topic]:
+            # Debug, not warning: an idempotent re-subscribe is the normal result of a
+            # guard doing its job, and warning on it would train people to ignore it.
+            logger.debug("Already subscribed to %s; not duplicating.", topic)
+            return
         self._subscribers[topic].append(callback)
         logger.debug(f"Subscribed to topic: {topic}")
+
+    def unsubscribe(self, topic: str, callback: Callable) -> bool:
+        """Remove one subscription. Returns True if it was there.
+
+        Added for `BaseAgent.rebind_bus`, and it turned out to be the missing half of
+        the §6.4 fix rather than a convenience.
+
+        Rebinding an agent to a simulation bus without unsubscribing it from the
+        global one left it subscribed to BOTH. So during a backtest a live
+        `TICK_RECEIVED` still reached the market-intelligence agent, which then
+        published its result to the SIMULATION bus — live analysis silently stopped
+        working for the duration and the simulation was polluted with live data. That
+        is the same class of cross-contamination §6.4 was about, arriving from the
+        other direction.
+
+        Empty topic lists are removed, so `len(_subscribers)` stays an honest count of
+        topics that actually have listeners. A monitoring view reading it would
+        otherwise report topics served by nobody.
+        """
+        handlers = self._subscribers.get(topic)
+        if not handlers or callback not in handlers:
+            return False
+        handlers.remove(callback)
+        if not handlers:
+            del self._subscribers[topic]
+        logger.debug("Unsubscribed from topic: %s", topic)
+        return True
 
     async def publish(self, topic: str, payload: Any) -> None:
         """

@@ -296,23 +296,52 @@ def test_the_validation_request_path_cannot_reach_validated():
     assert any("no backtest was executed" in u for u in result.unavailable)
 
 
-def test_the_backtester_is_not_called_inline_because_it_clears_the_bus():
-    """`HistoricalBacktestEngine.__init__` calls `self.bus._subscribers.clear()`.
-    Running it in a live process would unsubscribe the trigger worker, the CRO, the
-    execution agent and the position monitor — a validation run would silently
-    disable trading."""
+def test_the_backtester_no_longer_clears_the_live_bus():
+    """THE HAZARD THIS GUARD DOCUMENTED IS FIXED, and the guard's own escape hatch
+    said to re-check when it was.
+
+    It used to call `self.bus._subscribers.clear()` on the GLOBAL bus, so running it
+    in a live process unsubscribed the trigger worker, the CRO, the execution agent
+    and the position monitor — a validation run silently disabled trading
+    (`OPERATOR_GUIDE.md` §6.4). It now builds a private `MessageBus`.
+    """
+    import backend.core.backtest_engine as be
+
+    assert "_subscribers.clear()" not in code_only(be), (
+        "the engine is clearing subscribers again — §6.4 has regressed"
+    )
+    assert "MessageBus" in instantiated_names(be), (
+        "the engine must construct its own bus rather than share the global one"
+    )
+
+
+def test_the_backtester_is_still_not_called_inline_for_a_NARROWER_reason():
+    """Bus isolation was necessary and is not sufficient.
+
+    `BaseAgent.__init__` captures the bus, so the engine has to REBIND the agents it
+    drives — and two of the three are process singletons. While a simulation is
+    running, the live market-intelligence agent and supervisor are pointed at the
+    simulation bus. A concurrent live analysis run would find them publishing into it.
+
+    So the rule "do not call the engine inline" survives, with a different
+    justification: not "it clears the bus" (fixed) but "it temporarily rebinds shared
+    singletons". Fixing THAT means giving the engine its own agent instances rather
+    than the singletons, which is a larger change than the bus isolation was.
+    """
     import backend.core.backtest_engine as be
     import backend.graphs.research_graph as rg
 
-    assert "_subscribers.clear()" in code_only(be), (
-        "the hazard this guard documents has gone — re-check whether research_graph "
-        "can now call the engine directly"
+    assert "rebind_bus" in code_only(be)
+    assert "restore_agent_buses" in code_only(be), (
+        "the engine must restore the singletons it rebound, or a live agent stays "
+        "pointed at a discarded simulation bus for the rest of the process's life"
     )
     # Checks for an actual CALL, not for the name appearing in text: the module's
     # `BACKTEST_UNAVAILABLE` constant names the class in order to explain why it is
     # not used, and `code_only` keeps real string constants.
     assert "HistoricalBacktestEngine" not in instantiated_names(rg), (
-        "research_graph must not instantiate the engine inline; it would clear the bus"
+        "research_graph must not instantiate the engine inline: it rebinds shared "
+        "agent singletons for the duration of the run"
     )
 
 

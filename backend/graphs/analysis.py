@@ -51,7 +51,9 @@ from backend.algorithms.probability import MIN_TRADES_FOR_ACCURACY
 from backend.graphs.builder import ConditionalEdge, GraphConfig, build_graph
 from backend.graphs.nodes.specialists import (
     SPECIALIST_NODES,
+    register_optional_specialist_nodes,
     register_specialist_nodes,
+    specialist_nodes,
 )
 from backend.graphs.nodes.risk_gateway import (
     RISK_GATEWAY_NODE,
@@ -96,6 +98,19 @@ def _ensure_nodes() -> None:
         register_supervisor_node()
     if get_contract(RISK_GATEWAY_NODE) is None:
         register_risk_gateway_node()
+
+    # Phase 35. Registered ONLY when the feature is on, so with it off these nodes
+    # do not exist — they are not registered-but-idle. A registered node still
+    # occupies a superstep slot and still shows up in `panelSize`, which would make
+    # the panel look like it had grown while the feature was disabled.
+    #
+    # Checked at call time rather than at import so flipping the flag in a test does
+    # not depend on module import order.
+    from backend.core.config import settings
+
+    if settings.POLYMARKET_ENABLED and get_contract("specialist_prediction") is None:
+        register_optional_specialist_nodes()
+
     _nodes_registered = True
 
 
@@ -138,7 +153,13 @@ def analysis_config() -> GraphConfig:
 
     # Every specialist converges on the debate. LangGraph runs the fan-in exactly
     # once, after all seven have completed.
-    edges += [(node, DEBATE_NODE) for node in SPECIALIST_NODES]
+    # `specialist_nodes()`, not `SPECIALIST_NODES`: the active set includes Phase
+    # 35's two optional nodes when POLYMARKET_ENABLED. Resolved ONCE and reused for
+    # every use below — calling it three times would let the flag change between
+    # calls and build a graph whose nodes, edges and fan-out router disagreed.
+    active_specialists = specialist_nodes()
+
+    edges += [(node, DEBATE_NODE) for node in active_specialists]
     edges += [
         # Phase 27. The Supervisor sits between the debate and the narrative: it
         # needs the verdict to decide, and the narrative needs the decision to
@@ -166,13 +187,13 @@ def analysis_config() -> GraphConfig:
             source="opportunity_detection",
             router=_after_opportunity,
             # A TUPLE, so all seven run in one superstep. See `_fan_out_router`.
-            destinations={"analyse": SPECIALIST_NODES, "no_opportunity": END},
+            destinations={"analyse": active_specialists, "no_opportunity": END},
         ),
     ]
 
     return GraphConfig(
         name=GRAPH_NAME,
-        nodes=[*base.nodes, *SPECIALIST_NODES, DEBATE_NODE, SUPERVISOR_NODE,
+        nodes=[*base.nodes, *active_specialists, DEBATE_NODE, SUPERVISOR_NODE,
                RISK_GATEWAY_NODE],
         entry=base.entry,
         edges=edges,
@@ -368,11 +389,15 @@ def summarise_analysis(state: TradingState) -> Dict[str, Any]:
         # Two separate honesty strings because they answer two different questions
         # an operator will actually ask about a low number.
         "coverageMeaning": (
-            "fraction of the directional panel's weight that could be measured. "
-            "Three of seven specialists (orderflow, liquidity, news) have no data "
-            "feed in this system, so directional coverage is capped at "
-            "market+funding = 4.0 of 7.0 panel weight today. Confidence is scaled "
-            "by this, so it can never reach 1.0 while those feeds are missing"
+            "fraction of the panel's weight that could be measured. Three of seven "
+            "specialists (orderflow, liquidity, news) have no data feed in this "
+            "system, so directional coverage is capped at market+funding = 4.0 of "
+            "7.0 panel weight today. Confidence is scaled by this, so it can never "
+            "reach 1.0 while those feeds are missing. With POLYMARKET_ENABLED the "
+            "SUPPLEMENTARY prediction specialist widens the denominator to 8.0 only "
+            "when it has a signal or failed trying — when no market resolves to the "
+            "symbol it leaves the denominator at 7.0, so an inapplicable source "
+            "costs nothing"
         ),
         "constraintMeaning": (
             "a further reduction applied by the single BINDING constraint "

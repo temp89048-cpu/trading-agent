@@ -366,17 +366,42 @@ blocked", which is the most reassuring possible wrong answer.
 
 Six of seven memory stores work without Postgres.
 
-### 6.4 The research graph cannot produce a real backtest score
+### 6.4 The research graph cannot produce a real backtest score — PARTLY FIXED
 
-`HistoricalBacktestEngine.__init__` calls `self.bus._subscribers.clear()`. Running it
-inside the live process would unsubscribe the trigger worker, the CRO, the execution
-agent and the position monitor — a validation run would silently disable trading.
+**Fixed:** `HistoricalBacktestEngine.__init__` used to call
+`self.bus._subscribers.clear()` on the global bus, so running it inside the live
+process unsubscribed the trigger worker, the CRO, the execution agent and the position
+monitor — a validation run silently disabled trading. It now builds its own private
+`MessageBus`, so it cannot touch live subscribers.
 
-So `research_graph` records the request and reports honestly that no backtest ran. A
-hypothesis **cannot** reach VALIDATED without a measured score; there is no parameter
-through which one could arrive.
+Bus isolation alone was not enough, and shipping only that would have been worse than
+the original bug: `BaseAgent.__init__` captures the bus, so `publish()` goes to
+whichever bus an agent was *constructed* with. Subscribing the agents to a private bus
+without rebinding them would have had them consume simulated ticks and publish the
+resulting orders and analyses onto the **live** bus. The engine therefore calls
+`agent.rebind_bus(...)` and restores every agent in a `finally`.
 
-**To fix:** give the engine an isolated bus and run it out of band.
+That fix in turn introduced a second bug, now also fixed: restoring re-subscribed the
+agent on the global bus, taking one handler to two, so the supervisor would evaluate
+every signal twice and could submit two trade requests for one decision.
+`MessageBus.subscribe` is now idempotent — which is where that hazard belongs, since
+this codebase already guarded against double-subscription by hand in `analysis`,
+`execution_service` and `trigger_worker`.
+
+**Still open, and why the engine is still not called inline:** two of the three agents
+it drives are process singletons, so *while a simulation runs* the live
+market-intelligence agent and supervisor are pointed at the simulation bus. A
+concurrent live analysis run would find them publishing into it. Fixing that means
+giving the engine its own agent instances rather than the singletons — a larger change
+than the bus isolation was.
+
+So `research_graph` still records the request and reports honestly that no backtest
+ran. A hypothesis **cannot** reach VALIDATED without a measured score; there is no
+parameter through which one could arrive.
+
+**Run it out of band** (a separate process) until the singleton sharing is addressed.
+`tests/test_sections_14_to_41.py` holds both halves of this: that the clearing is gone,
+and that `research_graph` still does not instantiate the engine.
 
 ### 6.5 The stop-loss only exists while the process is alive ⚠️
 

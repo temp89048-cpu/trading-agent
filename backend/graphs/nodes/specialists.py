@@ -77,6 +77,7 @@ conviction and cannot vote. A portfolio book is not a market signal.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from backend.algorithms.debate import (
@@ -122,7 +123,73 @@ DIRECTIONAL_WEIGHTS: Dict[str, float] = {
 
 TOTAL_DIRECTIONAL_WEIGHT = sum(DIRECTIONAL_WEIGHTS.values())
 
+# ---------------------------------------------------------------------------
+# Supplementary weights — Phase 35, a THIRD tier
+# ---------------------------------------------------------------------------
+#
+# A supplementary specialist is one extra layer of information: it may add or
+# subtract conviction when it has something to say, and must cost nothing when it
+# does not apply.
+#
+# THIS TIER EXISTS BECAUSE THE TWO EXISTING ONES BOTH GET IT WRONG.
+#
+# As a plain directional specialist, `prediction`'s weight would join
+# TOTAL_DIRECTIONAL_WEIGHT permanently — imposing a ~12.5% confidence penalty on
+# every symbol Polymarket does not cover (which is most of them; it has deep BTC and
+# ETH markets and little else). An input that makes the agent less willing to trade
+# SOL because a Bitcoin prediction market exists is not supplementary.
+#
+# As a constraint it could only ever reduce conviction (constraints combine with
+# `max()`), so a prediction market agreeing with the thesis could never add anything
+# — which throws away the half of the signal that is actually useful.
+#
+# So: weight counted in the denominator only when the specialist is either available
+# or genuinely FAILED. See `SpecialistFinding.not_applicable` for why "the source
+# does not exist for this symbol" is arithmetically different from "we could not
+# read it", and `core/risk_manager.py`'s 'unavailable' vs 'delegated' split for the
+# same distinction already drawn elsewhere in this codebase.
+#
+# Populated ONLY when `settings.POLYMARKET_ENABLED` — see `supplementary_weights()`.
+# With the flag off this is empty, no node is registered, and every confidence number
+# is byte-identical to Phase 34.
+SUPPLEMENTARY_WEIGHTS: Dict[str, float] = {
+    # 1.0 — equal to funding, one third of market. A prediction market on a dated
+    # threshold is a real but indirect observation of spot: it prices a TERMINAL
+    # distribution, not the next 15-minute candle. Claiming more would assert a
+    # track record this system has never measured, exactly as the core weights note.
+    "prediction": 1.0,
+}
+
+
+def supplementary_weights() -> Dict[str, float]:
+    """Active supplementary weights. Empty unless the feature is enabled.
+
+    Read at call time rather than captured at import so a test can flip the flag,
+    and so enabling it does not require a restart to take effect consistently across
+    the two places that need it (`run_debate` and node registration).
+    """
+    from backend.core.config import settings
+
+    if not settings.POLYMARKET_ENABLED:
+        return {}
+    return dict(SUPPLEMENTARY_WEIGHTS)
+
+
 CONSTRAINT_SPECIALISTS = ("liquidity", "portfolio", "risk")
+
+# Constraints added by Phase 35, active only with POLYMARKET_ENABLED. Kept separate
+# from the tuple above so the base panel's composition is unchanged when the feature
+# is off, and so `constraint_specialists()` is the single place that combines them.
+OPTIONAL_CONSTRAINT_SPECIALISTS = ("event_risk",)
+
+
+def constraint_specialists() -> Tuple[str, ...]:
+    """Active constraint specialists, base plus any enabled optional ones."""
+    from backend.core.config import settings
+
+    if not settings.POLYMARKET_ENABLED:
+        return CONSTRAINT_SPECIALISTS
+    return CONSTRAINT_SPECIALISTS + OPTIONAL_CONSTRAINT_SPECIALISTS
 
 # Funding this far from zero is a crowded-positioning signal. Same threshold the
 # thesis evidence gatherer already uses, referenced rather than re-picked so the
@@ -698,6 +765,256 @@ def specialist_risk(state: TradingState) -> Optional[Dict[str, Any]]:
 
 
 # ===========================================================================
+# 7b/7c. Polymarket specialists (Phase 35) — SUPPLEMENTARY and CONSTRAINT
+# ===========================================================================
+#
+# One extra layer of information. Neither node fetches anything: both read the
+# snapshot that the Polymarket worker computed, for the same reason the funding
+# specialist reads `sentiment_analysis` rather than re-fetching it — two nodes
+# fetching the same number in one run can disagree about it, and a network call
+# inside a seven-way fan-out makes the panel's latency the sum of seven timeouts.
+#
+# Both are registered ONLY when `settings.POLYMARKET_ENABLED`, so with the flag off
+# they do not exist and no confidence number changes.
+
+PREDICTION_NOT_APPLICABLE = (
+    "no confirmed Polymarket market resolves to this symbol. Polymarket has deep "
+    "BTC and ETH markets and little else, so this is the expected result for most "
+    "symbols — it means the source does not apply here, NOT that the crowd has no "
+    "view, and it is deliberately not counted against panel coverage"
+)
+
+PREDICTION_STALE = (
+    "no fresh Polymarket snapshot: a mapping exists but the last computed signal is "
+    "older than the staleness limit or was never written. A stale probability "
+    "presented as current evidence would be weighted as a live reading, so it is "
+    "reported as missing — and this DOES count against coverage, because unlike the "
+    "not-applicable case it is an engineering gap"
+)
+
+
+def _read_snapshot(symbol: str) -> Optional[Dict[str, Any]]:
+    """Read the latest snapshot for `symbol`. None when absent, stale or unreadable.
+
+    Synchronous, because `run_debate` and every specialist are synchronous by design
+    (deterministic pure arithmetic). The store's public getter is async only because
+    WRITES serialise behind a lock; reading just parses the file, so the read path is
+    used directly rather than making the whole panel async for one file read.
+
+    Never raises. A missing or corrupt snapshot must produce `available=False` with a
+    reason, not a failed graph run.
+    """
+    try:
+        from backend.services import polymarket_store
+
+        snapshots = polymarket_store._read(polymarket_store.SNAPSHOT_FILE, {})
+        record = snapshots.get(symbol)
+        if not isinstance(record, dict):
+            return None
+
+        computed_at = record.get("computedAt")
+        if not isinstance(computed_at, (int, float)):
+            return None
+        # `abs()` so a snapshot timestamped in the future is refused too — a clock
+        # change must not make stale data look permanently fresh.
+        if abs(time.time() - float(computed_at)) > polymarket_store.MAX_SNAPSHOT_AGE_SECONDS:
+            return None
+        return record
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not read the Polymarket snapshot for %s: %s", symbol, exc)
+        return None
+
+
+def specialist_prediction(state: TradingState) -> Optional[Dict[str, Any]]:
+    """Prediction-market evidence. SUPPLEMENTARY — one extra layer, never the basis.
+
+    Reports three distinct states, and the difference between the last two is the
+    whole design:
+
+      available        a fresh, computable signal. Joins the vote at weight 1.0 of
+                       8.0, so it can shade conviction and cannot carry a decision
+                       (see `SUPPLEMENTARY_WEIGHTS` and Guard A in `run_debate`).
+      not_applicable   no confirmed market resolves to this symbol. Costs nothing —
+                       coverage is exactly what it would be without this node.
+      unavailable      a market IS mapped but the snapshot is stale or the signal was
+                       uncomputable. Counts against coverage, because that is a real
+                       engineering gap rather than an inapplicable source.
+    """
+    symbol = state["symbol"]
+    snapshot = _read_snapshot(symbol)
+
+    if snapshot is None or snapshot.get("applicable") is not True:
+        reason = PREDICTION_NOT_APPLICABLE
+        if snapshot is not None:
+            reason = snapshot.get("reasonNotApplicable") or PREDICTION_NOT_APPLICABLE
+        return {
+            "specialist_findings": [
+                SpecialistFinding(
+                    specialist="prediction",
+                    role="supplementary",
+                    available=False,
+                    not_applicable=True,
+                    evidence=[
+                        "supplementary source: its absence is not scored against the panel",
+                    ],
+                    reason_unavailable=reason,
+                )
+            ],
+            # Deliberately NOT added to `unavailable`. That list answers "why did
+            # nothing trade?", and a source that does not apply to this symbol is not
+            # a reason a trade did not happen — listing it there would put a
+            # permanent, misleading line in every alt-coin run's explanation.
+        }
+
+    directional = snapshot.get("directional")
+    if not isinstance(directional, dict):
+        return {
+            "specialist_findings": [
+                SpecialistFinding(
+                    specialist="prediction",
+                    role="supplementary",
+                    available=False,
+                    not_applicable=False,
+                    evidence=["a market IS mapped to this symbol, so this gap is counted"],
+                    reason_unavailable=PREDICTION_STALE,
+                )
+            ],
+            "unavailable": ["prediction specialist (stale or uncomputable snapshot)"],
+        }
+
+    direction = directional.get("direction")
+    conviction = directional.get("confidence")
+    if direction not in ("LONG", "SHORT", "NEUTRAL") or not isinstance(
+        conviction, (int, float)
+    ) or isinstance(conviction, bool):
+        return {
+            "specialist_findings": [
+                SpecialistFinding(
+                    specialist="prediction",
+                    role="supplementary",
+                    available=False,
+                    not_applicable=False,
+                    reason_unavailable=(
+                        f"malformed snapshot: direction={direction!r}, "
+                        f"confidence={conviction!r}"
+                    ),
+                )
+            ],
+            "unavailable": ["prediction specialist (malformed snapshot)"],
+        }
+
+    stance = {
+        "LONG": "supports_long",
+        "SHORT": "supports_short",
+        "NEUTRAL": "neutral",
+    }[direction]
+
+    total_with_supplementary = (
+        TOTAL_DIRECTIONAL_WEIGHT + SUPPLEMENTARY_WEIGHTS["prediction"]
+    )
+    evidence: List[str] = []
+    if directional.get("observation"):
+        evidence.append(str(directional["observation"]))
+    evidence.append(
+        "a market-implied TERMINAL expectation, not a forecast for the next candle"
+    )
+    evidence.append(
+        f"supplementary weight {SUPPLEMENTARY_WEIGHTS['prediction']} of "
+        f"{total_with_supplementary} panel weight — it shades conviction, it does not "
+        f"decide"
+    )
+
+    return {
+        "specialist_findings": [
+            SpecialistFinding(
+                specialist="prediction",
+                role="supplementary",
+                available=True,
+                stance=stance,
+                confidence=max(0.0, min(1.0, float(conviction))),
+                evidence=evidence,
+            )
+        ],
+    }
+
+
+def specialist_event_risk(state: TradingState) -> Optional[Dict[str, Any]]:
+    """Event risk from prediction markets. CONSTRAINT — concern only, never direction.
+
+    Concern comes from how UNDECIDED the market is and how SOON it resolves, never
+    from which way it leans. "Will exchange X be hacked?" has an obviously adverse
+    side; "Will the ETH ETF be approved?" does not, and deciding whether approval is
+    good for a long BTC position would be guesswork multiplied into a real confidence
+    number. See `algorithms.prediction_market.event_uncertainty`.
+
+    Reports `concern=None` rather than 0.0 when nothing could be measured. A
+    constraint reporting 0.0 says "measured, and found no obstacle" — reassurance
+    this node has not earned when its feed is absent.
+    """
+    symbol = state["symbol"]
+    snapshot = _read_snapshot(symbol)
+
+    if snapshot is None:
+        return {
+            "specialist_findings": [
+                SpecialistFinding(
+                    specialist="event_risk",
+                    role="constraint",
+                    available=False,
+                    evidence=["unknown event risk is not the same as no event risk"],
+                    reason_unavailable=(
+                        "no fresh Polymarket snapshot, so scheduled event risk around "
+                        "this symbol is unmeasured. Reporting 0.0 concern here would be "
+                        "reassurance derived from an absent feed"
+                    ),
+                )
+            ],
+            "unavailable": ["event risk specialist (no Polymarket snapshot)"],
+        }
+
+    event_risk = snapshot.get("eventRisk")
+    concern_raw = event_risk.get("concern") if isinstance(event_risk, dict) else None
+    if not isinstance(concern_raw, (int, float)) or isinstance(concern_raw, bool):
+        return {
+            "specialist_findings": [
+                SpecialistFinding(
+                    specialist="event_risk",
+                    role="constraint",
+                    available=False,
+                    reason_unavailable=(
+                        "no event-risk market is mapped to this symbol, or its "
+                        "uncertainty and resolution time could not be measured"
+                    ),
+                )
+            ],
+        }
+
+    from backend.services.polymarket_registry import MAX_EVENT_RISK_CONCERN
+
+    concern = max(0.0, min(MAX_EVENT_RISK_CONCERN, float(concern_raw)))
+
+    evidence = [
+        str(event_risk.get("observation") or "event-risk market measured"),
+        "concern from UNCERTAINTY and PROXIMITY, not from which outcome is adverse — "
+        "deciding which resolution is bad for this position would be guesswork",
+        f"capped at {MAX_EVENT_RISK_CONCERN}, so event risk can dampen conviction but "
+        f"never veto a trade on its own",
+    ]
+
+    return {
+        "specialist_findings": [
+            SpecialistFinding(
+                specialist="event_risk",
+                role="constraint",
+                available=True,
+                concern=concern,
+                evidence=evidence,
+            )
+        ],
+    }
+
+
+# ===========================================================================
 # 8. Debate Agent — the fan-in
 # ===========================================================================
 
@@ -740,7 +1057,7 @@ def run_debate(state: TradingState) -> Optional[Dict[str, Any]]:
     absent = sorted(f.specialist for f in findings if not f.available)
     present = sorted(f.specialist for f in findings if f.available)
 
-    # --- directional tally -------------------------------------------------
+    # --- core directional tally --------------------------------------------
     weighted_sum = 0.0
     available_weight = 0.0
     for name, weight in DIRECTIONAL_WEIGHTS.items():
@@ -749,6 +1066,60 @@ def run_debate(state: TradingState) -> Optional[Dict[str, Any]]:
             continue
         available_weight += weight
         weighted_sum += weight * finding.signed_weight()
+
+    core_available_weight = available_weight
+
+    # --- supplementary tier (Phase 35) -------------------------------------
+    #
+    # Three outcomes per supplementary specialist, and they differ in the ARITHMETIC
+    # rather than only in the reporting:
+    #
+    #   available            joins numerator AND denominator — can add or subtract
+    #                        conviction
+    #   failed               joins the DENOMINATOR only — coverage drops, which is
+    #                        honest: a mapped market we could not read is an
+    #                        engineering gap, and `specialists.py`'s refusal to
+    #                        renormalise applies to it
+    #   not_applicable       joins NEITHER — the source does not exist for this
+    #                        symbol, so confidence is identical to a run where the
+    #                        specialist did not exist at all
+    #
+    # Without the third case, every symbol Polymarket does not cover would carry a
+    # permanent ~12.5% confidence penalty for the absence of a source that cannot
+    # apply to it. See `SpecialistFinding.not_applicable`.
+    supplementary_denominator = 0.0
+    supplementary_excluded: List[str] = []
+
+    for name, weight in supplementary_weights().items():
+        finding = by_name.get(name)
+        if finding is None:
+            # The node did not run at all (feature enabled mid-run, or a graph that
+            # does not include it). Treated as not-applicable: charging coverage for
+            # a node that never executed would penalise a configuration change.
+            continue
+
+        if finding.available:
+            # GUARD A: A SUPPLEMENTARY SOURCE MAY NOT SPEAK ALONE.
+            #
+            # Without this, `prediction` + `funding` reach coverage 2.0/8.0 = 0.25 —
+            # above MIN_CONFIDENCE_TO_TRADE (0.18) — so two weak indirect signals
+            # could authorise a trade with NO price-based evidence at all. Today
+            # funding alone reaches 1.0/7.0 = 0.14 and cannot, and this feature has
+            # no business creating that capability.
+            if core_available_weight <= 0.0:
+                supplementary_excluded.append(
+                    f"{name} (available, but excluded: no core directional specialist "
+                    f"ran, and a supplementary source may not be the sole basis for a "
+                    f"direction)"
+                )
+                continue
+            available_weight += weight
+            weighted_sum += weight * finding.signed_weight()
+            supplementary_denominator += weight
+        elif not finding.not_applicable:
+            supplementary_denominator += weight
+
+    total_weight = TOTAL_DIRECTIONAL_WEIGHT + supplementary_denominator
 
     supporting: List[str] = []
     contradicting: List[str] = []
@@ -779,7 +1150,10 @@ def run_debate(state: TradingState) -> Optional[Dict[str, Any]]:
         }
 
     net = weighted_sum / available_weight
-    coverage = available_weight / TOTAL_DIRECTIONAL_WEIGHT
+    # `total_weight`, not TOTAL_DIRECTIONAL_WEIGHT: an enabled supplementary
+    # specialist that HAS something to say (or failed trying) widens the panel, and
+    # one that does not apply leaves it exactly as it was.
+    coverage = available_weight / total_weight
 
     if net > NEUTRAL_BAND:
         direction = "LONG"
@@ -798,7 +1172,7 @@ def run_debate(state: TradingState) -> Optional[Dict[str, Any]]:
     # --- constraint dampening ---------------------------------------------
     binding_name: Optional[str] = None
     binding_concern = 0.0
-    for name in CONSTRAINT_SPECIALISTS:
+    for name in constraint_specialists():
         finding = by_name.get(name)
         if finding is None or not finding.available or finding.concern is None:
             continue
@@ -808,7 +1182,10 @@ def run_debate(state: TradingState) -> Optional[Dict[str, Any]]:
     confidence *= 1.0 - binding_concern
 
     # --- who said what ----------------------------------------------------
-    for name in DIRECTIONAL_WEIGHTS:
+    # Supplementary names included so a prediction-market vote is visible in the
+    # For/Against lists. A leg that moved the number must be nameable, or an operator
+    # cannot reconcile the rationale with the confidence.
+    for name in (*DIRECTIONAL_WEIGHTS, *supplementary_weights()):
         finding = by_name.get(name)
         if finding is None or not finding.available:
             continue
@@ -819,11 +1196,15 @@ def run_debate(state: TradingState) -> Optional[Dict[str, Any]]:
         agrees = (signed > 0) if direction == "LONG" else (signed < 0)
         (supporting if agrees else contradicting).append(label)
 
-    for name in CONSTRAINT_SPECIALISTS:
+    for name in constraint_specialists():
         finding = by_name.get(name)
         if finding is None or not finding.available or not finding.concern:
             continue
         contradicting.append(f"{name} (constraint, concern {finding.concern:.2f})")
+
+    # An excluded-by-Guard-A leg is reported rather than dropped: "we had a view and
+    # deliberately did not count it" is a different fact from "we had no view".
+    contradicting.extend(supplementary_excluded)
 
     parts = [
         f"{direction} at {confidence:.2f} confidence from a net directional score of "
@@ -987,4 +1368,73 @@ def register_specialist_nodes() -> None:
             phase=26,
         ),
         run_debate,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 35 — optional Polymarket nodes
+# ---------------------------------------------------------------------------
+#
+# A SEPARATE tuple and a SEPARATE register function, not additions to the ones
+# above, so that with `POLYMARKET_ENABLED` off the panel's composition is literally
+# unchanged rather than conditionally unchanged. `SPECIALIST_NODES` stays exactly the
+# seven names it has always had, and the tests asserting that keep working.
+OPTIONAL_SPECIALIST_NODES: Tuple[str, ...] = (
+    "specialist_prediction",
+    "specialist_event_risk",
+)
+
+
+def specialist_nodes() -> Tuple[str, ...]:
+    """The specialist nodes this run should fan out to.
+
+    `analysis.py` builds its fan-out edges from this, so a disabled feature produces
+    no node, no edge and no finding — rather than a node that runs and reports
+    unavailable. That distinction matters: a registered node still costs a superstep
+    slot and still appears in `panelSize`, which would make the panel look like it
+    grew even with the feature off.
+    """
+    from backend.core.config import settings
+
+    if not settings.POLYMARKET_ENABLED:
+        return SPECIALIST_NODES
+    return SPECIALIST_NODES + OPTIONAL_SPECIALIST_NODES
+
+
+def register_optional_specialist_nodes() -> None:
+    """Register the Polymarket specialists. Caller checks POLYMARKET_ENABLED.
+
+    Both are `deterministic=True` and neither may call a model: they read a snapshot
+    another component computed and translate it into a finding. That is arithmetic and
+    dictionary access, and `registry.coverage()`'s deterministic/LLM ratio is the
+    number this project watches — a supplementary feed is not a reason to move it.
+    """
+    register_node(
+        NodeContract(
+            name="specialist_prediction",
+            reads=("symbol",),
+            writes=("specialist_findings", "unavailable"),
+            purpose=(
+                "Supplementary prediction-market evidence — weight 1.0 of 8.0, and "
+                "not counted against coverage when no market resolves to the symbol"
+            ),
+            deterministic=True,
+            phase=35,
+        ),
+        specialist_prediction,
+    )
+
+    register_node(
+        NodeContract(
+            name="specialist_event_risk",
+            reads=("symbol",),
+            writes=("specialist_findings", "unavailable"),
+            purpose=(
+                "Scheduled event risk as a CONSTRAINT — concern from uncertainty and "
+                "proximity, never from which outcome is adverse"
+            ),
+            deterministic=True,
+            phase=35,
+        ),
+        specialist_event_risk,
     )

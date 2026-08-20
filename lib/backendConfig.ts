@@ -81,6 +81,23 @@ export const BACKEND_PATHS = {
   graphRuns: '/api/graphs/runs',
   graphPositions: '/api/graphs/positions',
   metaLearning: '/api/graphs/meta-learning',
+
+  // --- Polymarket prediction-market feed (Phase 37) -----------------------
+  //
+  // FastAPI only, for the same reason as the graph paths above: the poller runs in
+  // the Python process and its stores have no `.data/` mirror the Next.js layer
+  // reads.
+  //
+  // `polymarketConfirm` is the human gate. `polymarket_store.confirm_mapping`
+  // refuses to mark a mapping confirmed without `set_by_human=True`, and that route
+  // is the only place in the codebase that passes it — so this path is what makes an
+  // otherwise unreachable safety check actually usable.
+  polymarket: '/api/polymarket',
+  polymarketSignals: '/api/polymarket/signals',
+  polymarketMappings: '/api/polymarket/mappings',
+  polymarketConfirm: '/api/polymarket/mappings/confirm',
+  polymarketSnapshots: '/api/polymarket/snapshots',
+  polymarketSeries: '/api/polymarket/series',
 } as const;
 
 /**

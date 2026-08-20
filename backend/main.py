@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.api import (
     market, exchange, ai, knowledge, memory, research, execution, monitoring,
     dashboard, admin, agents as agents_api, missions, graphs as graphs_api,
+    polymarket as polymarket_api,
 )
 from backend.core.agent_os import get_agent_os
 from backend.agents.trading_agent import register_trading_agent
@@ -229,6 +230,43 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(position_worker.start()),
     ]
 
+    # Phase 36 — Polymarket poller. Started ONLY when the feature is enabled.
+    #
+    # Gated rather than started-and-idle for a concrete reason: an always-running
+    # worker that no-ops still holds a task, still logs a cycle, and still appears in
+    # whatever an operator reads to see what the process is doing. A feature that is
+    # off should be ABSENT, not quietly present. `run_cycle` re-checks the flag
+    # itself, so a change while running is honoured either way.
+    polymarket_worker = None
+    polymarket_stream = None
+    from backend.core.config import settings as _settings
+
+    if _settings.POLYMARKET_ENABLED:
+        from backend.workers.polymarket_worker import (
+            get_polymarket_stream,
+            get_polymarket_worker,
+        )
+
+        polymarket_worker = get_polymarket_worker()
+        worker_tasks.append(asyncio.create_task(polymarket_worker.start()))
+
+        # Phase 32b. The stream is STARTED, not appended to `worker_tasks`: it owns
+        # one task per followed outcome internally, and `start()` returns once they
+        # are launched. Cancelling a single wrapper task would leave those children
+        # running.
+        polymarket_stream = get_polymarket_stream()
+        await polymarket_stream.start()
+        logger.info(
+            "Polymarket poller started — READ-ONLY market data. It cannot place an "
+            "order on any venue and decides nothing: it stores signals that two "
+            "SUPPLEMENTARY specialists read, at weight 1.0 of 8.0 panel weight."
+        )
+    else:
+        logger.info(
+            "Polymarket integration OFF (POLYMARKET_ENABLED=false). No poller, no "
+            "specialists registered, and every confidence number is unchanged."
+        )
+
     # Start the AgentOS loop when the server starts
     agent_os = get_agent_os()
     agent_os.start_scheduler(tick_ms=3000)
@@ -239,9 +277,27 @@ async def lifespan(app: FastAPI):
     curiosity_worker.stop()
     trigger_worker.stop()
     position_worker.stop()
+    if polymarket_worker is not None:
+        polymarket_worker.stop()
+    if polymarket_stream is not None:
+        # Awaited, unlike the other workers' synchronous `stop()`: it cancels its own
+        # child tasks and gathers them, so an un-awaited stop would let them log
+        # "Task exception was never retrieved" at interpreter shutdown — which reads as
+        # a crash during an otherwise clean stop.
+        await polymarket_stream.stop()
     for task in worker_tasks:
         task.cancel()
     live_data_task.cancel()
+
+    # Release the Polymarket HTTP session. Unconditional: the client is a lazily
+    # built singleton, so closing when it was never opened is a no-op, and skipping
+    # it on the disabled path would leak a session if anything else had touched it.
+    try:
+        from backend.services.polymarket_client import close_polymarket_client
+
+        await close_polymarket_client()
+    except Exception as e:
+        logger.warning("Polymarket client did not close cleanly: %s", e)
 
     # Close the checkpointer connection LAST, after the workers that use it have
     # been told to stop. Closing it first would have an in-flight monitoring run
@@ -295,5 +351,13 @@ app.include_router(missions.router, prefix="/api/missions", tags=["Missions API"
 # Read-only except POST /run/{symbol}, which is auth-gated and still cannot trade:
 # it produces an inert ExecutionPlan that GRAPH_EXECUTION_ENABLED gates separately.
 app.include_router(graphs_api.router, prefix="/api/graphs", tags=["LangGraph API"])
+
+# Phase 37. Mounted unconditionally even though the FEATURE is flag-gated, and
+# that is deliberate: the endpoints answer "is this feed contributing anything,
+# and if not, why not?", and the most useful time to ask is when the answer is
+# no. `POST /mappings/confirm` is also the only route in the codebase that passes
+# `set_by_human=True` — without it, `confirm_mapping`'s refusal would be
+# unreachable rather than enforced, and no mapping could ever be confirmed.
+app.include_router(polymarket_api.router, prefix="/api/polymarket", tags=["Polymarket API"])
 
 # Original fallback health check removed, using dedicated router above

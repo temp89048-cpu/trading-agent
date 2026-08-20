@@ -19,6 +19,7 @@ import { OrderFlowPanel } from './OrderFlowPanel';
 import { StrategyEnsemblePanel } from './StrategyEnsemblePanel';
 import { RiskManagerPanel } from './RiskManagerPanel';
 import { MarketIntelPanel } from './MarketIntelPanel';
+import { PolymarketPanel } from './PolymarketPanel';
 import { MultiExchangePanel } from './MultiExchangePanel';
 import { PortfolioIntelligencePanel } from './PortfolioIntelligencePanel';
 import { EventDetectionPanel } from './EventDetectionPanel';
@@ -141,7 +142,7 @@ export function TradingSidebar({ onClose }: { onClose?: () => void }) {
           <WatchlistEditor onSelectSymbol={(symbol) => setChartItem(watchlist.find((w) => w.symbol === symbol) ?? null)} />
         </div>
 
-        <CollapsibleGroup id="market" title="Market Intelligence" icon="trend-up" count={6}>
+        <CollapsibleGroup id="market" title="Market Intelligence" icon="trend-up" count={7}>
           <SectionBlock title="Multi-Timeframe" icon="trend-up">
             <MTFBadges />
           </SectionBlock>
@@ -159,6 +160,13 @@ export function TradingSidebar({ onClose }: { onClose?: () => void }) {
           </SectionBlock>
           <SectionBlock title="Market News" icon="edit">
             <NewsPanel />
+          </SectionBlock>
+          {/* Grouped with Market Intelligence rather than Strategy & AI: a
+              prediction-market probability is an INPUT the panel weighs, not a
+              decision the agent made. It is also the one panel here that reads
+              the FastAPI process directly. */}
+          <SectionBlock title="Prediction Markets" icon="search">
+            <PolymarketPanel />
           </SectionBlock>
         </CollapsibleGroup>
 

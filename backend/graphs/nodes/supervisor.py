@@ -592,11 +592,39 @@ def _why_from_specialists(state: TradingState, verdict: Any) -> str:
     parts: List[str] = []
     for finding in sorted(available, key=lambda f: (f.role != "directional", f.specialist)):
         lead = finding.evidence[0]
-        if finding.role == "directional":
-            stance = finding.stance or "no stance"
-            parts.append(f"{finding.specialist} ({stance}): {lead}")
+        # THREE roles, matched explicitly — not "directional or else constraint".
+        #
+        # Phase 35 added `supplementary` (the Polymarket prediction leg), and this
+        # branch was `if directional / else constraint`. So a supplementary finding
+        # fell into the constraint branch and was formatted as
+        # `(constraint, {concern:.2f})` — but a supplementary finding carries `stance`
+        # and `confidence`, never `concern`, so `concern` is None and the format raised
+        # `unsupported format string passed to NoneType.__format__`.
+        #
+        # The whole supervisor node then failed and produced NO decision at all, where
+        # it should have returned an explainable WAIT. `builder.py` degrades a failed
+        # node rather than aborting the run, so the only symptom was one log line and a
+        # missing decision.
+        #
+        # Two bugs in one line: the crash, and — had it not crashed — labelling the
+        # prediction specialist a "constraint", which inverts the role distinction the
+        # supplementary tier exists to draw.
+        #
+        # Found by enabling the gates and running the graph for real. 1288 tests
+        # passed, because none of them ran the SUPERVISOR with a supplementary finding
+        # in state: the Phase 35 tests exercised `run_debate` directly.
+        if finding.role == "constraint":
+            concern = "unmeasured" if finding.concern is None else f"{finding.concern:.2f}"
+            parts.append(f"{finding.specialist} (constraint, {concern}): {lead}")
         else:
-            parts.append(f"{finding.specialist} (constraint, {finding.concern:.2f}): {lead}")
+            # directional and supplementary both vote, so both are described by stance.
+            # The role is named so a reader can tell a 3.0-weight leg from a 1.0 one.
+            stance = finding.stance or "no stance"
+            label = (
+                stance if finding.role == "directional"
+                else f"{stance}, supplementary"
+            )
+            parts.append(f"{finding.specialist} ({label}): {lead}")
 
     why = "; ".join(parts)
     if verdict is not None and verdict.absent:

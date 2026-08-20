@@ -36,6 +36,35 @@ class Settings:
     # value means a trade whose stop is hit loses 2% of equity.
     RISK_PER_TRADE: float = float(os.getenv("RISK_PER_TRADE", "0.02"))
 
+    # ---------------------------------------------------------------
+    # Polymarket prediction-market feed (POLYMARKET_INTEGRATION_PLAN.md).
+    #
+    # DEFAULTS OFF, and not merely for caution — turning it on CHANGES
+    # EVERY CONFIDENCE NUMBER THE SYSTEM PRODUCES.
+    #
+    # `graphs/nodes/specialists.py` computes
+    #     coverage = available_weight / TOTAL_DIRECTIONAL_WEIGHT
+    # so registering a new directional specialist raises the denominator
+    # on every run, including runs where it has nothing to say. Today
+    # coverage caps at 4.0/7.0 = 0.571 (market + funding available,
+    # orderflow + news blocked). Adding `prediction` at weight 1.0 makes
+    # it 5.0/8.0 = 0.625 when a market resolves to the symbol — and
+    # 4.0/8.0 = 0.500 when none does, which is the COMMON case, since
+    # Polymarket has deep BTC/ETH markets and little else.
+    #
+    # A run sitting at the 0.18 MIN_CONFIDENCE_TO_TRADE floor therefore
+    # lands at 0.158 and flips from TRADE to WAIT. That is honest — the
+    # panel really is less complete once we admit the feed exists — but it
+    # must be an explicit operator decision, not a side effect of
+    # installing a dependency. With this flag false the specialists are
+    # not registered at all and confidence is byte-identical to before.
+    #
+    # Read at call time, not captured at import, so a test can flip it.
+    # ---------------------------------------------------------------
+    @property
+    def POLYMARKET_ENABLED(self) -> bool:
+        return os.getenv("POLYMARKET_ENABLED", "false").lower() == "true"
+
     # Database
     DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/tradingos")
 

@@ -21,7 +21,15 @@ asyncpg
 # which the Dockerfile never installs, so the container could not start.
 # Kept here rather than left split: an execution path that cannot import is
 # not an optional feature, it is a broken build.
-ccxt
+#
+# PINNED to a minimum as of Phase 32. `backend/services/polymarket_client.py`
+# needs `ccxt.prediction.polymarket` and the `Prediction*` unified types
+# (PredictionOutcome.price, PredictionMarket.marketType/underlying/floorStrike),
+# which are recent additions — 4.5.73 is the version they were verified against.
+# On an older ccxt the adapter import fails, and the client degrades to
+# "unavailable, here is why" rather than breaking startup; pinning is what turns
+# that silent degradation into a resolvable install error instead.
+ccxt>=4.5.73
 
 # Test dependency for tests/test_agents.py (pytest is invoked by the QA gate
 # in spec Section 22.9). Was not declared anywhere.

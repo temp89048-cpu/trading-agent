@@ -126,6 +126,28 @@ class TriggerConfig:
     # Unrealised P&L swing on an open position, in percent.
     position_risk_change_pct: float = 3.0
 
+    # Phase 36 — prediction-market reprice. BOTH must be satisfied to fire.
+    #
+    # Two conditions rather than one because either alone misfires:
+    #
+    #   the absolute band alone   fires constantly on a market that habitually moves
+    #                             5 points, which polymarket.md's threshold table
+    #                             (§11) does not account for — it assumes every
+    #                             market shares a noise floor
+    #   the z-score alone         fires on a 0.4-point move in an unusually quiet
+    #                             market, which is statistically notable and
+    #                             economically meaningless
+    #
+    # 0.05 = 5 probability points. Above polymarket.md's "balanced" 3% because this
+    # is a SUPPLEMENTARY source: it should not be provoking expensive reasoning runs
+    # at the same sensitivity as a price move.
+    prediction_shift_abs: float = 0.05
+    # 2.5 sigma against the market's own step size. Prediction-market probabilities
+    # are bounded in [0,1] and cluster, so their step distribution has thin tails and
+    # 2-sigma events are common — the same reasoning as
+    # `prediction_market.ZSCORE_FULL_CONFIDENCE`.
+    prediction_shift_zscore: float = 2.5
+
     # Per-(symbol, kind) cooldown. A regime change is a slower phenomenon than a
     # price move, so it gets a longer cooldown — re-reasoning about the same
     # regime shift every minute produces the same answer at full cost.
@@ -138,6 +160,11 @@ class TriggerConfig:
         "exchange_event": 300.0,
         "liquidation_spike": 300.0,
         "news_event": 300.0,
+        # 900s. Prediction markets reprice on discrete news rather than
+        # continuously, so a shorter cooldown buys noise: the same repricing
+        # observed twice is the same information. Matches funding_change, which
+        # moves on a comparable cadence for comparable reasons.
+        "prediction_market_shift": 900.0,
         "manual": 0.0,        # an operator asking is never rate-limited
         "scheduled": 0.0,
     })
@@ -172,6 +199,12 @@ class SymbolBaseline:
     open_interest: Optional[float] = None
     position_pnl_pct: Optional[float] = None
     exchange_reachable: Optional[bool] = None
+    # Phase 36. Per-OUTCOME, not one scalar per symbol: a symbol can have several
+    # mapped outcomes (each price bucket of a range event is one), and collapsing
+    # them to a single number would mean a move in one bucket reset the baseline for
+    # all of them — so the next genuine move in a different bucket would measure
+    # against the wrong reference and under-report.
+    prediction_probabilities: Dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -352,6 +385,100 @@ class TriggerEvaluator:
                         base.open_interest = oi
 
         return out
+
+    # -- prediction markets (Phase 36) --------------------------------
+
+    def evaluate_prediction_market(
+        self,
+        symbol: str,
+        outcome: str,
+        probability: Optional[float],
+        zscore: Optional[float],
+        now: Optional[float] = None,
+    ) -> List[TriggerDecision]:
+        """A prediction-market outcome repriced materially and unusually.
+
+        Goes through `_admit()` like every other automatic trigger, so it inherits
+        the per-(symbol, kind) cooldown, the global ceiling and the per-symbol
+        ceiling. polymarket.md §13 proposes a separate alert rule for ">3 events per
+        minute on the same market"; that is what `_admit` already does, and
+        implementing it again here would create two answers to "why did this not
+        fire".
+
+        REQUIRES BOTH a material absolute move AND an unusual one. `zscore is None`
+        means the market has too little history for a volatility baseline, and in that
+        case NOTHING FIRES — reported as a suppression with that reason. Firing on the
+        absolute band alone would mean the first few hours of every newly-discovered
+        market produce triggers, because a fresh series has no way to say what normal
+        looks like for it.
+
+        First observation of an outcome establishes its baseline and never fires,
+        matching `evaluate_macro`'s treatment of funding: a baseline seeded from
+        nothing would make the first reading look like a change of its whole distance
+        from zero.
+        """
+        now = time.time() if now is None else now
+        if probability is None:
+            # Not measured. Distinct from a measured 0.0, which would be a real
+            # (and extreme) reading.
+            return []
+
+        base = self.baseline(symbol)
+        previous = base.prediction_probabilities.get(outcome)
+        if previous is None:
+            base.prediction_probabilities[outcome] = probability
+            return []
+
+        delta = probability - previous
+        if abs(delta) < self.config.prediction_shift_abs:
+            return []
+
+        reason = TriggerReason(
+            kind="prediction_market_shift",
+            symbol=symbol,
+            detail=(
+                f"{outcome} repriced {delta:+.3f} from {previous:.3f} to "
+                f"{probability:.3f}"
+                + ("" if zscore is None else f" ({zscore:+.2f} sigma)")
+            ),
+            observed_value=abs(delta),
+            threshold=self.config.prediction_shift_abs,
+        )
+
+        if zscore is None:
+            self._detected += 1
+            self._suppressed += 1
+            return [TriggerDecision(
+                reason=reason,
+                acted=False,
+                suppressed_reason=(
+                    "no volatility baseline for this market yet, so it cannot be said "
+                    "whether this move is unusual. Not firing on the absolute band "
+                    "alone — a market that habitually moves this much would trigger "
+                    "on every poll"
+                ),
+            )]
+
+        if abs(zscore) < self.config.prediction_shift_zscore:
+            self._detected += 1
+            self._suppressed += 1
+            return [TriggerDecision(
+                reason=reason,
+                acted=False,
+                suppressed_reason=(
+                    f"move is {abs(zscore):.2f} sigma, below the "
+                    f"{self.config.prediction_shift_zscore} minimum — large in absolute "
+                    f"terms but ordinary for this market"
+                ),
+            )]
+
+        decision = self._admit(reason, now)
+        if decision.acted:
+            # Baseline reset on fire, for the reason the module docstring gives: a
+            # sustained drift would otherwise re-fire every cooldown while still
+            # measuring against its original starting point.
+            base.prediction_probabilities[outcome] = probability
+        return [decision]
 
     # -- position risk ------------------------------------------------
 
@@ -585,13 +712,24 @@ class TriggerEvaluator:
         }
 
     def implemented_kinds(self) -> List[str]:
-        """Trigger kinds this evaluator can actually produce."""
-        return sorted(
-            k for k in (
-                "price_move", "volatility_regime_change", "funding_change",
-                "oi_spike", "position_risk_change", "exchange_event", "manual",
-            )
-        )
+        """Trigger kinds this evaluator can actually produce.
+
+        `prediction_market_shift` is conditional on POLYMARKET_ENABLED. The method
+        exists either way, but with the feature off nothing polls Polymarket, so
+        listing the kind would claim a capability that cannot fire — the same
+        dishonesty `UNAVAILABLE_TRIGGERS` exists to prevent for the feeds that are
+        genuinely missing.
+        """
+        kinds = [
+            "price_move", "volatility_regime_change", "funding_change",
+            "oi_spike", "position_risk_change", "exchange_event", "manual",
+        ]
+
+        from backend.core.config import settings
+
+        if settings.POLYMARKET_ENABLED:
+            kinds.append("prediction_market_shift")
+        return sorted(kinds)
 
 
 _evaluator: Optional[TriggerEvaluator] = None

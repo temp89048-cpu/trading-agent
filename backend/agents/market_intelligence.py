@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import logging
 import numpy as np
 from backend.services.market_data import fetch_klines
@@ -311,5 +311,45 @@ class MarketIntelligenceAgent(BaseAgent):
             return "elevated"
         return "normal"
 
+# ---------------------------------------------------------------------------
+# Singleton
+# ---------------------------------------------------------------------------
+#
+# MEMOISED, and it was not before. `get_market_intelligence_agent()` used to be `return MarketIntelligenceAgent()`, so
+# every call built a NEW agent — and `BaseAgent.__init__` subscribes on construction,
+# with nothing ever unsubscribing. So each call added a permanent duplicate handler to
+# the global bus, and the agent then processed every matching event once per call ever
+# made.
+#
+# Latent in production, because `main.py` calls this exactly once at startup. It
+# became live the moment `HistoricalBacktestEngine` also called it: running a backtest
+# in-process left a SECOND agent handling every live event for the rest of the
+# process's life — for the supervisor, two trade-authorization requests per debate.
+#
+# Found by an independent end-to-end verification of the Phase 38 bus-isolation work,
+# not by the test suite, which had constructed one engine per test and never checked
+# what accumulated across them.
+#
+# Every other accessor of this shape already memoises — `cio_agent`,
+# `hypothesis_agent`, `get_exchange_client`, `get_polymarket_client`. These two were
+# the exceptions.
+
+_instance: Optional[MarketIntelligenceAgent] = None
+
+
 def get_market_intelligence_agent() -> MarketIntelligenceAgent:
-    return MarketIntelligenceAgent()
+    global _instance
+    if _instance is None:
+        _instance = MarketIntelligenceAgent()
+    return _instance
+
+
+def reset_market_intelligence_agent() -> None:
+    """For tests. Drops the singleton WITHOUT unsubscribing it.
+
+    Deliberate: a test that wants a clean bus should build its own `MessageBus`, which
+    is what `isolated_bus` does. Silently unsubscribing here would make this function
+    mutate global routing as a side effect of asking for a fresh object.
+    """
+    global _instance
+    _instance = None

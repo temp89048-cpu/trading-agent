@@ -260,6 +260,26 @@ class SupervisorAgent(BaseAgent):
         Refusals are persisted alongside approvals. A decision log that only
         contains the trades that happened cannot answer "why didn't it act
         on that setup?", which is the question an operator asks most often.
+
+        `outcome="rejected"`, NOT "declined". `db/schema.sql`'s `decisions` table
+        constrains this column to
+
+            approved-executed | approved-not-executed | rejected |
+            pending-approval  | manually-approved     | manually-rejected
+
+        and "declined" is not among them, so EVERY refusal violated the check
+        constraint and was never stored. The failure was logged by
+        `_persist_decision` and swallowed, so the system kept running and the
+        decision log silently contained only the trades that happened — precisely
+        the situation this method's own docstring exists to prevent.
+
+        Found by enabling the autonomy gates and reading the server log: a steady
+        stream of `violates check constraint "decisions_outcome_check"` behind
+        ordinary-looking "Supervisor declined to submit a TAR" lines. Most decisions
+        ARE refusals, so most of the audit trail was being dropped.
+
+        `tests/test_decision_audit.py` now asserts every outcome literal the code
+        writes is one the schema accepts, so a new value cannot reintroduce this.
         """
         logger.info("Supervisor declined to submit a TAR for %s: %s", symbol, cause)
         await self._persist_decision(
@@ -268,7 +288,7 @@ class SupervisorAgent(BaseAgent):
             side="buy",
             qty=0.0,
             price=0.0,
-            outcome="declined",
+            outcome="rejected",
             rationale=f"No TAR submitted: {cause}",
         )
 
@@ -556,8 +576,48 @@ class SupervisorAgent(BaseAgent):
 
 
 # Export an instance or a factory
+# ---------------------------------------------------------------------------
+# Singleton
+# ---------------------------------------------------------------------------
+#
+# MEMOISED, and it was not before. `get_supervisor()` used to be `return SupervisorAgent()`, so
+# every call built a NEW agent — and `BaseAgent.__init__` subscribes on construction,
+# with nothing ever unsubscribing. So each call added a permanent duplicate handler to
+# the global bus, and the agent then processed every matching event once per call ever
+# made.
+#
+# Latent in production, because `main.py` calls this exactly once at startup. It
+# became live the moment `HistoricalBacktestEngine` also called it: running a backtest
+# in-process left a SECOND agent handling every live event for the rest of the
+# process's life — for the supervisor, two trade-authorization requests per debate.
+#
+# Found by an independent end-to-end verification of the Phase 38 bus-isolation work,
+# not by the test suite, which had constructed one engine per test and never checked
+# what accumulated across them.
+#
+# Every other accessor of this shape already memoises — `cio_agent`,
+# `hypothesis_agent`, `get_exchange_client`, `get_polymarket_client`. These two were
+# the exceptions.
+
+_instance: Optional[SupervisorAgent] = None
+
+
 def get_supervisor() -> SupervisorAgent:
-    return SupervisorAgent()
+    global _instance
+    if _instance is None:
+        _instance = SupervisorAgent()
+    return _instance
+
+
+def reset_supervisor() -> None:
+    """For tests. Drops the singleton WITHOUT unsubscribing it.
+
+    Deliberate: a test that wants a clean bus should build its own `MessageBus`, which
+    is what `isolated_bus` does. Silently unsubscribing here would make this function
+    mutate global routing as a side effect of asking for a fresh object.
+    """
+    global _instance
+    _instance = None
 
 
 async def request_trade_authorization(

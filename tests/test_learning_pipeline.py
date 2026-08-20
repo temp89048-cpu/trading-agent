@@ -158,14 +158,27 @@ async def test_invalid_status_is_rejected():
         await research_store.update_hypothesis_status(record["id"], "deployed", "x", set_by_human=True)
 
 
-def test_only_the_api_route_passes_set_by_human():
-    """`set_by_human=True` must be PASSED in exactly one place: the HTTP route an
-    operator drives. Anywhere else would be a backdoor around the gate.
+def test_only_http_routes_pass_set_by_human():
+    """`set_by_human=True` must be passed ONLY from an HTTP route an operator drives.
+    Anywhere else would be a backdoor around the gate.
 
     Checks real call arguments via `ast`, not raw text. A text search also
     matched `backend/core/auth.py`, whose docstring discusses this very gate —
     prose about a rule is not a violation of it, and a test that can't tell the
     difference would push authors toward not documenting the rule.
+
+    WIDENED FROM ONE FILE TO ONE LAYER.
+    -----------------------------------
+    This originally asserted the set was exactly `["backend/api/research.py"]`, and it
+    failed when `backend/api/polymarket.py` added the same gate for the Polymarket
+    market-mapping confirmation — a second, legitimate instance of the identical
+    pattern for a different store.
+
+    Pinning the exact filename made the test a record of WHICH gate existed rather
+    than of the rule the gate enforces, so a correct addition read as a violation. The
+    rule is about the layer: a service, worker, graph node or algorithm must never
+    pass it, because that is automated code confirming its own guess, which makes the
+    human step decorative. An `api/` module is by definition a route a person drives.
     """
     hits = []
     for path in BACKEND.rglob("*.py"):
@@ -185,8 +198,17 @@ def test_only_the_api_route_passes_set_by_human():
                     and kw.value.value is True
                 ):
                     hits.append(path.relative_to(ROOT).as_posix())
-    assert sorted(set(hits)) == ["backend/api/research.py"], (
-        f"set_by_human=True is passed in: {sorted(set(hits))}"
+
+    found = sorted(set(hits))
+    # The research gate must still exist — this test's original subject.
+    assert "backend/api/research.py" in found, (
+        "backend/api/research.py no longer passes set_by_human=True, so Section 12's "
+        f"human-approval gate is unreachable. Found: {found}"
+    )
+    non_route = [f for f in found if not f.startswith("backend/api/")]
+    assert not non_route, (
+        f"set_by_human=True is passed outside an HTTP route: {non_route}. Automated "
+        f"code may not satisfy the human gate."
     )
 
 

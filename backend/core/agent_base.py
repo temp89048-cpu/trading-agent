@@ -183,6 +183,55 @@ class BaseAgent(ABC):
             self.bus.subscribe(event_type, self.handle_event)
             logger.info(f"{self.name} subscribed to {event_type}")
 
+    def rebind_bus(self, bus: Any) -> Any:
+        """Point this agent at a different message bus. Returns the previous one.
+
+        FOR SIMULATION ONLY, AND IT EXISTS BECAUSE SUBSCRIBING IS NOT ENOUGH.
+        --------------------------------------------------------------------
+        `self.bus` is captured in `__init__`, so `publish()` always goes to whatever
+        bus the agent was CONSTRUCTED with — regardless of which bus something later
+        subscribed it to.
+
+        `HistoricalBacktestEngine` hits this directly. It used to call
+        `self.bus._subscribers.clear()` on the GLOBAL bus, which unsubscribed the
+        trigger worker, the CRO, the execution agent and the position monitor: a
+        validation run silently disabled live trading (`OPERATOR_GUIDE.md` §6.4).
+
+        The obvious fix — give the engine its own bus and subscribe the agents there —
+        is not sufficient on its own, and is arguably worse: the agents are singletons
+        that would still PUBLISH to the global bus, so backtest events would be
+        delivered to live subscribers. Before, the clear at least meant nothing live
+        was listening.
+
+        So a simulation harness must rebind the agents it drives, and restore them
+        afterwards. The caller owns the restore — hence the previous bus is returned
+        rather than stashed here, which would invite a nested harness to lose it.
+
+        IT UNSUBSCRIBES FROM THE OLD BUS, AND THAT IS NOT OPTIONAL.
+        ----------------------------------------------------------
+        The first version only subscribed to the new bus, leaving the agent on BOTH.
+        During a backtest a live `TICK_RECEIVED` therefore still reached this agent —
+        which then published its result to the SIMULATION bus. Live analysis silently
+        stopped working for the duration, and the simulation was polluted with live
+        data: the same cross-contamination §6.4 was about, arriving from the other
+        direction.
+
+        Caught by an independent end-to-end verification, not by the unit tests, which
+        checked that the live bus's SUBSCRIBERS survived and never checked what the
+        rebound agent was still listening to.
+
+        Not called anywhere in the live path. `tests/test_polymarket_validation.py`
+        asserts that.
+        """
+        previous = self.bus
+        if previous is not None and previous is not bus:
+            for event_type in self.events_consumed:
+                previous.unsubscribe(event_type, self.handle_event)
+        self.bus = bus
+        for event_type in self.events_consumed:
+            bus.subscribe(event_type, self.handle_event)
+        return previous
+
     async def publish(self, event: BaseEvent) -> None:
         """Safely publishes an event, ensuring the agent has permission."""
         if event.event_type not in self.events_published:

@@ -65,6 +65,11 @@ TriggerKind = Literal[
     "liquidation_spike",
     "volatility_regime_change",
     "news_event",
+    # Phase 36. NOT folded into "news_event", deliberately: a prediction-market
+    # reprice is not a headline, and reusing that kind would make
+    # `UNAVAILABLE_TRIGGERS["news_event"]`'s stated blocker a lie while leaving the
+    # actual news gap invisible. Two different missing feeds must stay two facts.
+    "prediction_market_shift",
     "position_risk_change",
     "exchange_event",
     "manual",
@@ -237,6 +242,38 @@ class SpecialistFinding:
     # Required when available is False. Says WHY, so a missing specialist is
     # explainable rather than merely absent.
     reason_unavailable: Optional[str] = None
+    # `available=False` because THE SOURCE DOES NOT APPLY HERE, not because reading
+    # it failed. Only meaningful for the `supplementary` role.
+    #
+    # WHY THIS IS A SEPARATE FLAG AND NOT JUST A WORDING OF `reason_unavailable`:
+    # the debate must treat the two causes differently in the ARITHMETIC, and only a
+    # field can carry that.
+    #
+    #   available=False, not_applicable=False  tried and failed. Its weight stays in
+    #                                          the coverage denominator, so
+    #                                          confidence drops. Honest — this is an
+    #                                          engineering gap and `specialists.py`'s
+    #                                          refusal to renormalise applies.
+    #   available=False, not_applicable=True   the source does not exist for this
+    #                                          symbol. Its weight LEAVES the
+    #                                          denominator, so confidence is
+    #                                          unchanged from a run where the
+    #                                          specialist did not exist.
+    #
+    # Polymarket has deep BTC/ETH markets and nothing for most alts. Counting that
+    # absence against coverage would impose a permanent confidence penalty on every
+    # uncovered symbol for the absence of a source that cannot apply to it — which
+    # would make a supplementary input load-bearing in the wrong direction.
+    #
+    # `core/risk_manager.py` already draws exactly this line, splitting
+    # `'unavailable'` (a caller omitted an input — rejects) from `'delegated'`
+    # (structurally uncomputable — reports). A check that can never be computed must
+    # not be scored as a check that failed.
+    #
+    # Defaults False so every existing specialist keeps today's behaviour: a
+    # feed-blocked orderflow specialist IS an engineering gap and must keep counting
+    # against coverage.
+    not_applicable: bool = False
 
     def signed_weight(self) -> float:
         """Stance as a signed number: positive favours long, negative short.
@@ -245,8 +282,20 @@ class SpecialistFinding:
         0.0, and the caller must exclude unavailable ones from the DENOMINATOR too
         — otherwise feed-blocked specialists would silently dilute every verdict
         toward neutral, which is the arithmetic form of counting absent votes.
+
+        `supplementary` votes too, at the small weight `SUPPLEMENTARY_WEIGHTS` gives
+        it. It was omitted here when the role was introduced, and the symptom was
+        instructive: `run_debate` added the specialist's weight to the DENOMINATOR
+        while this method returned 0.0 for its stance, so an agreeing prediction
+        market made confidence go DOWN — it widened the panel and then abstained.
+        Nothing raised, and the number was plausible. Caught by
+        `test_an_agreeing_prediction_adds_conviction`.
+
+        Only `constraint` is excluded, and that exclusion is the point of the role:
+        a portfolio book is not a market signal, so it caps conviction instead of
+        voting. See the `role` field.
         """
-        if self.role != "directional":
+        if self.role not in ("directional", "supplementary"):
             return 0.0
         if not self.available or self.stance is None or self.confidence is None:
             return 0.0

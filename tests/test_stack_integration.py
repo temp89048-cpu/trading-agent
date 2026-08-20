@@ -37,7 +37,8 @@ def test_every_api_router_is_actually_mounted():
     for prefix in ("/api/market", "/api/exchange", "/api/ai", "/api/knowledge",
                    "/api/memory", "/api/research", "/api/execution",
                    "/api/monitoring", "/api/dashboard", "/api/agents",
-                   "/api/admin", "/api/missions", "/api/graphs"):
+                   "/api/admin", "/api/missions", "/api/graphs",
+                   "/api/polymarket"):
         assert any(p.startswith(prefix) for p in paths), (
             f"no endpoint is mounted under {prefix} — the router exists but serves nothing"
         )
@@ -46,7 +47,10 @@ def test_every_api_router_is_actually_mounted():
 def test_the_api_surface_is_not_empty():
     from backend.main import app
 
-    assert len(app.openapi()["paths"]) >= 45
+    # 45 -> 55 when Phase 37 added the Polymarket router (7 endpoints). A floor
+    # rather than an exact count, so adding a route does not fail this test — the
+    # thing being guarded is a router silently going unmounted.
+    assert len(app.openapi()["paths"]) >= 55
 
 
 # ===========================================================================
