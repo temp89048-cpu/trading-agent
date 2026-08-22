@@ -1,3 +1,19 @@
+-- ---------------------------------------------------------------------
+-- THIS FILE IS APPLIED ON EVERY BACKEND STARTUP, so every statement in it must
+-- be safe to re-run. That is why every CREATE is `IF NOT EXISTS` and every seed
+-- INSERT carries `ON CONFLICT DO NOTHING`.
+--
+-- WHY IT CHANGED. `core/db.py:init_db()` used to apply this file only when the
+-- `trades` table was absent. Once `trades` existed the file was never read again,
+-- so `execution_quality` — added to this schema later — was NEVER CREATED. Every
+-- `_persist_execution_quality()` call in the execution agent failed against a
+-- missing table and logged an error after the order had already gone to the
+-- exchange. 26 tables were declared here; 25 existed in the database.
+--
+-- Gating a whole schema on one table's existence is not a migration. Keep every
+-- statement here idempotent and `init_db` will pick up anything added later.
+-- ---------------------------------------------------------------------
+
 -- ============================================================================
 -- TradingOS AI — PostgreSQL schema (migration target)
 --
@@ -29,7 +45,7 @@
 -- ============================================================================
 
 -- Source: lib/tradeStore.server.ts / TradeLogEntry (lib/types.ts)
-CREATE TABLE trades (
+CREATE TABLE IF NOT EXISTS trades (
   id              text PRIMARY KEY,
   ts              timestamptz NOT NULL,
   tab             text NOT NULL CHECK (tab IN ('paper', 'real')),
@@ -48,13 +64,13 @@ CREATE TABLE trades (
   exchange_order_id text,
   created_at      timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_trades_tab_ts ON trades (tab, ts DESC);
-CREATE INDEX idx_trades_symbol ON trades (symbol);
+CREATE INDEX IF NOT EXISTS idx_trades_tab_ts ON trades (tab, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades (symbol);
 COMMENT ON TABLE trades IS 'Append-heavy trade log. Replaces .data/trades.json.';
 
 
 -- Source: lib/decisionStore.server.ts / DecisionRecord (lib/types.ts)
-CREATE TABLE decisions (
+CREATE TABLE IF NOT EXISTS decisions (
   id                       text PRIMARY KEY,
   ts                       timestamptz NOT NULL,
   symbol                   text NOT NULL,
@@ -82,8 +98,8 @@ CREATE TABLE decisions (
   rationale                text,
   trade_log_entry_id       text REFERENCES trades (id) ON DELETE SET NULL
 );
-CREATE INDEX idx_decisions_symbol_ts ON decisions (symbol, ts DESC);
-CREATE INDEX idx_decisions_outcome ON decisions (outcome);
+CREATE INDEX IF NOT EXISTS idx_decisions_symbol_ts ON decisions (symbol, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_decisions_outcome ON decisions (outcome);
 COMMENT ON TABLE decisions IS 'Complete Audit Trail — every Supervisor decision, not just executed trades. Replaces .data/decisions.json.';
 -- Every decision is written once and never edited by application code
 -- (see components/Supervisor.tsx / TradingControlsPanel.tsx) — enforce
@@ -92,7 +108,7 @@ REVOKE UPDATE, DELETE ON decisions FROM PUBLIC;
 
 
 -- Source: lib/reflectionStore.server.ts / ReflectionRecord
-CREATE TABLE reflections (
+CREATE TABLE IF NOT EXISTS reflections (
   trade_id             text PRIMARY KEY REFERENCES trades (id) ON DELETE CASCADE,
   ts                   timestamptz NOT NULL,
   symbol               text NOT NULL,
@@ -106,7 +122,7 @@ COMMENT ON TABLE reflections IS 'One post-trade reflection per closed trade. Rep
 
 
 -- Source: lib/memoryStore.server.ts — a SINGLETON today, not a list.
-CREATE TABLE memory_prefs (
+CREATE TABLE IF NOT EXISTS memory_prefs (
   id               text PRIMARY KEY DEFAULT 'default',
   risk_preference  text CHECK (risk_preference IN ('conservative', 'moderate', 'aggressive')),
   updated_at       timestamptz
@@ -116,7 +132,7 @@ COMMENT ON TABLE memory_prefs IS 'Only the explicitly-stated risk preference —
 
 
 -- Source: lib/debateStore.server.ts / DebateRecord (lib/debate/types.ts)
-CREATE TABLE debate_records (
+CREATE TABLE IF NOT EXISTS debate_records (
   id                       text PRIMARY KEY,
   ts                       timestamptz NOT NULL,
   symbol                   text NOT NULL,
@@ -130,13 +146,13 @@ CREATE TABLE debate_records (
   outcome                  text CHECK (outcome IN ('win', 'loss')),
   outcome_pnl_usd          numeric
 );
-CREATE INDEX idx_debate_records_symbol_ts ON debate_records (symbol, ts DESC);
-CREATE INDEX idx_debate_records_trade_id ON debate_records (trade_id);
+CREATE INDEX IF NOT EXISTS idx_debate_records_symbol_ts ON debate_records (symbol, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_debate_records_trade_id ON debate_records (trade_id);
 COMMENT ON TABLE debate_records IS 'Starts as a prediction (trade_id/outcome null); updated once linked to a trade that has since closed. Replaces .data/debate-records.json.';
 
 
 -- Source: lib/strategyVersionStore.server.ts / StrategyVersion — APPEND-ONLY.
-CREATE TABLE strategy_versions (
+CREATE TABLE IF NOT EXISTS strategy_versions (
   id               text PRIMARY KEY,
   ts               timestamptz NOT NULL,     -- deployment date
   symbol           text NOT NULL,
@@ -150,13 +166,13 @@ CREATE TABLE strategy_versions (
   stability_score  numeric,                  -- 0-100, nullable
   note             text
 );
-CREATE INDEX idx_strategy_versions_symbol_ts ON strategy_versions (symbol, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_strategy_versions_symbol_ts ON strategy_versions (symbol, ts DESC);
 COMMENT ON TABLE strategy_versions IS 'Versions the Backtest Optimizer''s TunableParams (the live 9-agent Strategy Ensemble is hardcoded with no parameters — nothing to version there). Never overwritten. Replaces .data/strategy-versions.json.';
 REVOKE UPDATE, DELETE ON strategy_versions FROM PUBLIC;
 
 
 -- Source: lib/missionStore.server.ts / Mission (lib/missionPlanner.ts)
-CREATE TABLE missions (
+CREATE TABLE IF NOT EXISTS missions (
   id           text PRIMARY KEY,
   type         text NOT NULL CHECK (type IN (
                  'growth', 'capital-preservation', 'event-reduction',
@@ -175,14 +191,25 @@ CREATE TABLE missions (
   target       jsonb NOT NULL,
   progress     jsonb NOT NULL,       -- {currentPct, status, lastEvaluatedAt, detail}
   constraints  jsonb NOT NULL DEFAULT '[]',
-  checkpoints  jsonb NOT NULL DEFAULT '[]'   -- capped at ~100 most recent in application code
+  checkpoints  jsonb NOT NULL DEFAULT '[]',  -- capped at ~100 most recent in application code
+  -- Total equity OBSERVED when the mission was created: the anchor every
+  -- "since the mission began" figure is measured from.
+  --
+  -- A column rather than a key inside `target` because it is a plain number every
+  -- mission type has, and because progress used to be computed against
+  -- `target.startEquityUsd` — a figure the USER TYPED — which made a
+  -- capital-target mission read 100% and flip straight to 'completed' the moment
+  -- it was created. NULL means "created before this column existed";
+  -- `evaluateMission` then falls back to the observed context equity, never to
+  -- the declared start.
+  baseline_equity_usd  numeric
 );
-CREATE INDEX idx_missions_status ON missions (status);
+CREATE INDEX IF NOT EXISTS idx_missions_status ON missions (status);
 COMMENT ON TABLE missions IS 'Strategic missions (Phase 22). At most one row should be status=active at a time — enforced in application code, not by a DB constraint. Replaces .data/missions.json.';
 
 
 -- Source: lib/hypothesisStore.server.ts / HypothesisRecord
-CREATE TABLE hypotheses (
+CREATE TABLE IF NOT EXISTS hypotheses (
   id              text PRIMARY KEY,
   trade_id        text NOT NULL REFERENCES trades (id) ON DELETE CASCADE,
   ts              timestamptz NOT NULL,
@@ -194,13 +221,13 @@ CREATE TABLE hypotheses (
   updated_at      timestamptz NOT NULL,
   UNIQUE (trade_id)                    -- upserted by trade_id, matching saveHypothesis()
 );
-CREATE INDEX idx_hypotheses_status ON hypotheses (status);
+CREATE INDEX IF NOT EXISTS idx_hypotheses_status ON hypotheses (status);
 COMMENT ON TABLE hypotheses IS
   'Stage 2 of the self-learning pipeline. CRITICAL: status=''applied'' only ever records that a HUMAN made a change themselves — no application code sets it, and nothing here may write to trading_controls or strategy config. See lib/hypothesisAgent.ts. Replaces .data/hypotheses.json.';
 
 
 -- Source: lib/collaborationStore.server.ts / CollaborationRecord — APPEND-ONLY.
-CREATE TABLE collaboration_requests (
+CREATE TABLE IF NOT EXISTS collaboration_requests (
   id                  text PRIMARY KEY,
   ts                  timestamptz NOT NULL,
   symbol              text NOT NULL,
@@ -213,14 +240,14 @@ CREATE TABLE collaboration_requests (
   error               text,              -- populated instead of `opinion` on failure — never both null silently
   CHECK (opinion IS NOT NULL OR error IS NOT NULL)
 );
-CREATE INDEX idx_collaboration_symbol_ts ON collaboration_requests (symbol, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_collaboration_symbol_ts ON collaboration_requests (symbol, ts DESC);
 COMMENT ON TABLE collaboration_requests IS
   'Every second-opinion request/response, for attribution. Advisory only — a recorded opinion never overrides Risk or the Supervisor. Replaces .data/collaboration.json.';
 REVOKE UPDATE, DELETE ON collaboration_requests FROM PUBLIC;
 
 
 -- Source: lib/autonomousCycleStore.server.ts / AutonomousCycleRecord
-CREATE TABLE autonomous_cycles (
+CREATE TABLE IF NOT EXISTS autonomous_cycles (
   id                    text PRIMARY KEY,
   ts                    timestamptz NOT NULL,
   outcome               text NOT NULL CHECK (outcome IN ('traded', 'no-trade', 'error')),
@@ -245,8 +272,8 @@ CREATE TABLE autonomous_cycles (
   mission_id            text REFERENCES missions (id) ON DELETE SET NULL,
   mission_progress_pct  numeric
 );
-CREATE INDEX idx_autonomous_cycles_ts ON autonomous_cycles (ts DESC);
-CREATE INDEX idx_autonomous_cycles_outcome ON autonomous_cycles (outcome);
+CREATE INDEX IF NOT EXISTS idx_autonomous_cycles_ts ON autonomous_cycles (ts DESC);
+CREATE INDEX IF NOT EXISTS idx_autonomous_cycles_outcome ON autonomous_cycles (outcome);
 COMMENT ON TABLE autonomous_cycles IS
   'Journal of EVERY autonomous loop cycle including no-trade ones. Unlike the other append-only stores this one is TRIMMED (application code keeps the most recent 500) because it appends on a fixed interval indefinitely. Replaces .data/autonomous-cycles.json.';
 
@@ -254,7 +281,7 @@ COMMENT ON TABLE autonomous_cycles IS
 -- Source: lib/newsProviderUsage.server.ts — a SINGLETON daily counter,
 -- reset when the UTC date rolls over. Exists to respect free-tier news
 -- provider quotas, not as analytics.
-CREATE TABLE news_provider_usage (
+CREATE TABLE IF NOT EXISTS news_provider_usage (
   id      text PRIMARY KEY DEFAULT 'default',
   date    date NOT NULL,        -- UTC date these counts belong to
   counts  jsonb NOT NULL DEFAULT '{}'   -- { [providerId]: callCount }
@@ -268,25 +295,25 @@ COMMENT ON TABLE news_provider_usage IS 'Per-UTC-day news API call counts. Repla
 -- ============================================================================
 
 -- Source: components/AppState.tsx / Conversation, Message (lib/types.ts)
-CREATE TABLE conversations (
+CREATE TABLE IF NOT EXISTS conversations (
   id          text PRIMARY KEY,
   title       text NOT NULL,
   created_at  timestamptz NOT NULL,
   updated_at  timestamptz NOT NULL
 );
 
-CREATE TABLE messages (
+CREATE TABLE IF NOT EXISTS messages (
   id               text PRIMARY KEY,
   conversation_id  text NOT NULL REFERENCES conversations (id) ON DELETE CASCADE,
   role             text NOT NULL CHECK (role IN ('user', 'assistant')),
   content          text NOT NULL,
   ts               timestamptz NOT NULL
 );
-CREATE INDEX idx_messages_conversation_ts ON messages (conversation_id, ts);
+CREATE INDEX IF NOT EXISTS idx_messages_conversation_ts ON messages (conversation_id, ts);
 
 
 -- Source: components/Portfolio.tsx / PortfolioState, Position (lib/types.ts)
-CREATE TABLE positions (
+CREATE TABLE IF NOT EXISTS positions (
   id        bigserial PRIMARY KEY,
   tab       text NOT NULL CHECK (tab IN ('paper', 'real')),
   symbol    text NOT NULL,
@@ -295,7 +322,7 @@ CREATE TABLE positions (
   UNIQUE (tab, symbol)
 );
 
-CREATE TABLE paper_account (
+CREATE TABLE IF NOT EXISTS paper_account (
   id    text PRIMARY KEY DEFAULT 'default',
   cash  numeric NOT NULL
 );
@@ -305,7 +332,7 @@ COMMENT ON TABLE paper_account IS 'Real tab has no tracked cash/equity in this a
 
 -- Source: lib/types.ts / AgentTask — includes the advanced-agent fields
 -- (trailing stop, scale-out, ATR stops, signal-gated entries).
-CREATE TABLE agent_tasks (
+CREATE TABLE IF NOT EXISTS agent_tasks (
   id                            text PRIMARY KEY,
   conversation_id               text REFERENCES conversations (id) ON DELETE SET NULL,
   tab                           text NOT NULL CHECK (tab IN ('paper', 'real')),
@@ -347,9 +374,9 @@ CREATE TABLE agent_tasks (
   exit_on_thesis_invalidation   boolean NOT NULL DEFAULT false,
   thesis_exit_confidence_pct    numeric   -- defaults to 70 in code when unset
 );
-CREATE INDEX idx_agent_tasks_status ON agent_tasks (status);
+CREATE INDEX IF NOT EXISTS idx_agent_tasks_status ON agent_tasks (status);
 
-CREATE TABLE agent_events (
+CREATE TABLE IF NOT EXISTS agent_events (
   id               text PRIMARY KEY,
   ts               timestamptz NOT NULL,
   agent_id         text NOT NULL REFERENCES agent_tasks (id) ON DELETE CASCADE,
@@ -357,17 +384,17 @@ CREATE TABLE agent_events (
   kind             text NOT NULL CHECK (kind IN ('opened', 'closed', 'completed', 'cancelled', 'error', 'staged')),
   message          text NOT NULL
 );
-CREATE INDEX idx_agent_events_agent_ts ON agent_events (agent_id, ts);
+CREATE INDEX IF NOT EXISTS idx_agent_events_agent_ts ON agent_events (agent_id, ts);
 
 
 -- Source: lib/types.ts / WatchItem, Config, McpServer
-CREATE TABLE watchlist (
+CREATE TABLE IF NOT EXISTS watchlist (
   symbol          text PRIMARY KEY,
   type            text NOT NULL CHECK (type IN ('crypto', 'equity')),
   binance_symbol  text
 );
 
-CREATE TABLE config (
+CREATE TABLE IF NOT EXISTS config (
   id                 text PRIMARY KEY DEFAULT 'default',
   provider           text NOT NULL,
   model              text NOT NULL DEFAULT '',
@@ -378,7 +405,7 @@ CREATE TABLE config (
   base_url_override  text NOT NULL DEFAULT ''
 );
 
-CREATE TABLE mcp_servers (
+CREATE TABLE IF NOT EXISTS mcp_servers (
   id    text PRIMARY KEY,
   name  text NOT NULL,
   url   text NOT NULL
@@ -386,7 +413,7 @@ CREATE TABLE mcp_servers (
 
 
 -- Source: components/TradingControls.tsx — pause/approval-threshold/risk overrides + the pending-approval queue.
-CREATE TABLE trading_controls (
+CREATE TABLE IF NOT EXISTS trading_controls (
   id                             text PRIMARY KEY DEFAULT 'default',
   paused                         boolean NOT NULL DEFAULT false,
   manual_approval_threshold_usd  numeric,
@@ -411,7 +438,7 @@ CREATE TABLE trading_controls (
 );
 INSERT INTO trading_controls (id) VALUES ('default') ON CONFLICT (id) DO NOTHING;
 
-CREATE TABLE pending_approvals (
+CREATE TABLE IF NOT EXISTS pending_approvals (
   id                   text PRIMARY KEY,
   dedupe_key           text,             -- e.g. an agent_tasks.id, so a repeating tick loop doesn't queue duplicates
   created_at           timestamptz NOT NULL,
@@ -428,7 +455,7 @@ CREATE TABLE pending_approvals (
   debate_id            text,
   decision_summary     text NOT NULL
 );
-CREATE INDEX idx_pending_approvals_dedupe ON pending_approvals (dedupe_key);
+CREATE INDEX IF NOT EXISTS idx_pending_approvals_dedupe ON pending_approvals (dedupe_key);
 
 
 -- ============================================================================
@@ -436,7 +463,7 @@ CREATE INDEX idx_pending_approvals_dedupe ON pending_approvals (dedupe_key);
 -- ============================================================================
 
 -- Source: 13_DATABASE_SCHEMA.md / Risk Engine Events
-CREATE TABLE risk_events (
+CREATE TABLE IF NOT EXISTS risk_events (
   event_id        text PRIMARY KEY,
   tar_id          text, -- Links to trade request (may not exist in trades table if rejected)
   decision        text NOT NULL CHECK (decision IN ('APPROVED', 'REJECTED')),
@@ -444,20 +471,20 @@ CREATE TABLE risk_events (
   rationale       text NOT NULL,
   timestamp       timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_risk_events_ts ON risk_events (timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_risk_events_ts ON risk_events (timestamp DESC);
 COMMENT ON TABLE risk_events IS 'Immutable log of every Chief Risk Officer (CRO) decision (approvals and vetoes).';
 
 -- Source: 13_DATABASE_SCHEMA.md / Knowledge Graph (Relational Mapping)
 -- Note: While Cypher/Neo4j is ideal, this provides a relational fallback for the Knowledge Graph.
-CREATE TABLE kg_nodes (
+CREATE TABLE IF NOT EXISTS kg_nodes (
   id              text PRIMARY KEY,
   type            text NOT NULL CHECK (type IN ('Trade', 'Strategy', 'MarketRegime', 'MacroEvent', 'Lesson')),
   properties      jsonb NOT NULL DEFAULT '{}',
   created_at      timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_kg_nodes_type ON kg_nodes (type);
+CREATE INDEX IF NOT EXISTS idx_kg_nodes_type ON kg_nodes (type);
 
-CREATE TABLE kg_edges (
+CREATE TABLE IF NOT EXISTS kg_edges (
   id              text PRIMARY KEY,
   source_node_id  text NOT NULL REFERENCES kg_nodes (id) ON DELETE CASCADE,
   target_node_id  text NOT NULL REFERENCES kg_nodes (id) ON DELETE CASCADE,
@@ -465,7 +492,7 @@ CREATE TABLE kg_edges (
   properties      jsonb NOT NULL DEFAULT '{}',
   created_at      timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_kg_edges_relations ON kg_edges (source_node_id, target_node_id);
+CREATE INDEX IF NOT EXISTS idx_kg_edges_relations ON kg_edges (source_node_id, target_node_id);
 COMMENT ON TABLE kg_nodes IS 'Knowledge Graph entities mapping.';
 COMMENT ON TABLE kg_edges IS 'Knowledge Graph edges/relationships mapping.';
 
@@ -484,7 +511,7 @@ COMMENT ON TABLE kg_edges IS 'Knowledge Graph edges/relationships mapping.';
 --
 -- Written by backend/agents/execution_agent.py::_persist_execution_quality.
 -- =====================================================================
-CREATE TABLE execution_quality (
+CREATE TABLE IF NOT EXISTS execution_quality (
   -- order_id is the primary key rather than a surrogate: one exchange order
   -- gets exactly one score, and the idempotent client-order-id means a
   -- retried submission must not produce a second row.
@@ -519,9 +546,85 @@ CREATE TABLE execution_quality (
   notes               jsonb NOT NULL DEFAULT '[]',
   created_at          timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_execution_quality_ts ON execution_quality (ts DESC);
-CREATE INDEX idx_execution_quality_symbol ON execution_quality (symbol, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_execution_quality_ts ON execution_quality (ts DESC);
+CREATE INDEX IF NOT EXISTS idx_execution_quality_symbol ON execution_quality (symbol, ts DESC);
 -- Partial fills are the rows worth finding quickly when reconciling the book
 -- against the exchange.
-CREATE INDEX idx_execution_quality_partial ON execution_quality (fully_filled) WHERE fully_filled = false;
+CREATE INDEX IF NOT EXISTS idx_execution_quality_partial ON execution_quality (fully_filled) WHERE fully_filled = false;
 COMMENT ON TABLE execution_quality IS 'Per-order execution score (fill completeness, slippage, latency). A NULL score means not measurable and must be excluded from averages, never counted as zero.';
+
+-- ---------------------------------------------------------------------
+-- Browser-state tables, added when localStorage stopped being the store.
+--
+-- Everything above was already declared with a "Source: lib/xStore.server.ts"
+-- comment — this schema was designed for exactly this migration and simply had
+-- not been wired to the Next.js side. These two had no table because they lived
+-- ONLY in localStorage and so had no server store to name.
+-- ---------------------------------------------------------------------
+
+-- Source: LS_KEYS.exchangeAccounts / components/ExchangeAccounts.tsx
+CREATE TABLE IF NOT EXISTS exchange_accounts (
+  id              text PRIMARY KEY,
+  label           text NOT NULL,
+  exchange        text NOT NULL,
+  -- Whether the operator has marked this account live. Advisory only: the
+  -- backend's LIVE_TRADING flag is the gate that actually routes real orders,
+  -- and nothing in this table can raise it.
+  enabled         boolean NOT NULL DEFAULT false,
+  testnet         boolean NOT NULL DEFAULT true,
+  -- SECRETS ARE DELIBERATELY NOT STORED HERE.
+  --
+  -- An API key with trading permission, sitting in a hosted database, is a
+  -- materially different risk from one in a single browser's localStorage: a
+  -- database backup, a read replica, a leaked connection string or a SQL
+  -- injection anywhere in the app now exposes funds. So the key STAYS in the
+  -- browser and only its last four characters are recorded, which is enough to
+  -- tell two accounts apart in the UI and useless to an attacker.
+  --
+  -- If you want cross-device keys, that needs envelope encryption with a KMS
+  -- key the database itself cannot read. Do not "temporarily" add a
+  -- plaintext api_key column here.
+  api_key_last4   text,
+  has_secret      boolean NOT NULL DEFAULT false,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+COMMENT ON TABLE exchange_accounts IS 'Exchange account metadata. Credentials are NOT stored — see the api_key_last4 comment.';
+
+-- Source: LS_KEYS.pvHistory — the portfolio-value curve the analytics panels plot.
+CREATE TABLE IF NOT EXISTS pv_history (
+  -- One row per (tab, ts). A second sample in the same millisecond is the same
+  -- observation, so the primary key drops it rather than double-counting.
+  tab             text NOT NULL CHECK (tab IN ('paper', 'real')),
+  ts              timestamptz NOT NULL,
+  -- Cash + marked positions at that instant.
+  total_value     numeric NOT NULL,
+  cash            numeric,
+  -- NULL when a position could not be priced, so the total is PARTIAL. A caller
+  -- must not treat a partial total as a complete one — that is how an equity
+  -- curve comes to show a drop that was really a missing price.
+  positions_value numeric,
+  complete        boolean NOT NULL DEFAULT true,
+  PRIMARY KEY (tab, ts)
+);
+CREATE INDEX IF NOT EXISTS idx_pv_history_tab_ts ON pv_history (tab, ts DESC);
+COMMENT ON TABLE pv_history IS 'Portfolio value samples. `complete=false` means some position had no price and total_value is partial.';
+
+-- ---------------------------------------------------------------------
+-- COLUMN ADDITIONS
+--
+-- `CREATE TABLE IF NOT EXISTS` above is a no-op on a table that already exists,
+-- so it CANNOT add a column to a live database. Adding a field to a CREATE block
+-- and expecting it to appear is the same mistake that left `execution_quality`
+-- declared-but-never-created for months: the file was read, the statement ran, and
+-- nothing happened.
+--
+-- Column additions therefore go HERE, as `ADD COLUMN IF NOT EXISTS`, which is
+-- idempotent and safe to re-run on every startup alongside everything else.
+--
+-- Keep both in sync: a new column needs a line in its CREATE block (for a fresh
+-- database) AND a line here (for an existing one). They are not redundant — they
+-- serve two different starting states.
+-- ---------------------------------------------------------------------
+
+ALTER TABLE missions ADD COLUMN IF NOT EXISTS baseline_equity_usd numeric;

@@ -36,13 +36,32 @@ export function MarketDataProvider({ children }: { children: React.ReactNode }) 
   const simTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
+    // Local copy first so the first render has a list; the server corrects it if
+    // it has one. A `null` watchlist from the server means NO DATABASE, not an
+    // empty list — replacing the local list with [] there would silently clear it.
     setWatchlistState(loadLS<WatchItem[]>(LS_KEYS.watchlist, DEFAULT_WATCHLIST));
+    fetch('/api/watchlist')
+      .then((res) => res.json())
+      .then((json: { watchlist: WatchItem[] | null }) => {
+        if (Array.isArray(json.watchlist) && json.watchlist.length > 0) {
+          setWatchlistState(json.watchlist);
+          saveLS(LS_KEYS.watchlist, json.watchlist);
+        }
+      })
+      .catch(() => {});
     setHydrated(true);
   }, []);
 
   useEffect(() => {
     if (!hydrated) return;
     saveLS(LS_KEYS.watchlist, watchlist);
+    // Mirrored to Postgres so the list is not confined to this browser. Logged,
+    // not surfaced, on failure: the local copy is already authoritative here.
+    fetch('/api/watchlist', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ watchlist }),
+    }).catch(() => {});
   }, [watchlist, hydrated]);
 
   function setWatchlist(updater: WatchItem[] | ((w: WatchItem[]) => WatchItem[])) {

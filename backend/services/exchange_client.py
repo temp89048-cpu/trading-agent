@@ -23,6 +23,9 @@ class ExchangeClient:
         self._api_key = api_key
         self._secret = secret
         self.use_testnet = use_testnet
+        # See fetch_balance: the testnet private-call refusal is permanent, so it is
+        # reported once rather than on every 30-second poll.
+        self._warned_testnet_private = False
 
         # Note: If no keys are provided, CCXT will still initialize, but it will fail on private endpoints
         self.exchange = ccxt.binance({
@@ -78,22 +81,148 @@ class ExchangeClient:
         return bool(self._api_key and self._secret)
 
     async def fetch_balance(self):
-        """Fetch free balance."""
+        """Fetch free balance. Returns None when it cannot be read.
+
+        THE TESTNET REFUSAL IS LOGGED ONCE, NOT ON EVERY POLL. With
+        `USE_TESTNET=true` and `defaultType='future'`, ccxt refuses every private
+        call because Binance dropped futures testnet support — a permanent,
+        already-understood condition, not an incident. It was being logged at ERROR
+        each time, and `/api/exchange/status` is polled every 30 seconds by the UI,
+        so a known non-problem was burying real errors in the same stream.
+
+        Genuine failures (auth, margin, an outage) still log at ERROR every time,
+        because those are worth seeing repeatedly.
+        """
         try:
-            balance = await self.exchange.fetch_balance()
-            return balance
+            return await self.exchange.fetch_balance()
         except Exception as e:
-            logger.error(f"Error fetching balance: {e}")
+            message = str(e)
+            testnet_unsupported = self.use_testnet and "sandbox" in message.lower()
+
+            if testnet_unsupported:
+                if not self._warned_testnet_private:
+                    self._warned_testnet_private = True
+                    logger.warning(
+                        "Balance is UNAVAILABLE, and will stay unavailable: USE_TESTNET=true "
+                        "puts ccxt in sandbox mode, which Binance no longer supports for "
+                        "futures. This is expected and is not an outage. Set USE_TESTNET=false "
+                        "to read a real balance — LIVE_TRADING=false remains the gate that "
+                        "prevents orders. Logged once; further occurrences are suppressed. (%s)",
+                        message,
+                    )
+                return None
+
+            logger.error("Error fetching balance: %s", e)
             return None
 
     async def fetch_tickers(self) -> dict:
-        """Fetch all tickers."""
+        """Fetch all tickers, keyed the way ccxt keys them.
+
+        For `defaultType='future'` those keys are CONTRACT ids, not spot pairs:
+        `BTC/USDT:USDT` for the linear perpetual, `BTC/USDT:USDT-260626` for a
+        dated quarterly. Callers wanting the system's `BASE/QUOTE` convention
+        should use `fetch_usdt_perpetual_prices()` instead — see the bug recorded
+        there.
+        """
         try:
             tickers = await self.exchange.fetch_tickers()
             return tickers
         except Exception as e:
             logger.error(f"Error fetching tickers: {e}")
             return {}
+
+    async def fetch_usdt_perpetual_prices(self) -> dict:
+        """`{'BTC/USDT': 77240.5, ...}` for USDT-settled PERPETUALS only.
+
+        WHY THIS EXISTS — A SILENT TOTAL FAILURE OF THE PRICE CACHE
+        -----------------------------------------------------------
+        `market_data.fetch_prices()` filtered tickers with
+        `symbol.endswith("/USDT")`. Under `defaultType='future'` ccxt keys every
+        futures ticker as `BASE/QUOTE:SETTLE`, so that test matched **zero** of
+        585 USDT contracts. The price cache stayed permanently empty, and because
+        the surrounding retry loop only stored a result when the filtered dict was
+        non-empty, it exhausted its retries and logged
+        "Failed to fetch prices via CCXT after maximum retries" — a NETWORK error
+        message for a string-matching bug. Every diagnosis it invited (check the
+        network, check testnet, check credentials) was aimed at the wrong thing;
+        `fetch_tickers` had been succeeding the whole time.
+
+        FILTERS ON TYPED MARKET METADATA, NOT ON THE SYMBOL STRING. That is what
+        made the original wrong, and a corrected string rule would still be
+        guessing at ccxt's formatting. `swap` distinguishes a perpetual from a
+        dated future, `linear` from an inverse (coin-margined) contract, and
+        `settle` names the collateral. Getting any of those wrong returns a real
+        price for the wrong instrument, which is worse than no price.
+
+        DATED FUTURES ARE EXCLUDED DELIBERATELY. `BTC/USDT:USDT-260626` would
+        collapse onto the same `BTC/USDT` key as the perpetual but trades at a
+        different price (basis), so whichever iterated last would win at random.
+        Several are also `active: False`.
+
+        Returns `{}` on failure or when nothing matched — never a partial cache
+        presented as complete. The caller distinguishes the two cases.
+        """
+        try:
+            # Needed for the metadata this filters on. ccxt caches it, so the
+            # cost is paid once rather than per poll.
+            await self.exchange.load_markets()
+            tickers = await self.exchange.fetch_tickers()
+        except Exception as e:
+            logger.error("Error fetching perpetual prices: %s", e)
+            return {}
+
+        prices: dict = {}
+        skipped_no_market = 0
+        skipped_not_perpetual = 0
+        skipped_no_last = 0
+
+        for symbol, ticker in tickers.items():
+            market = self.exchange.markets.get(symbol)
+            if not market:
+                skipped_no_market += 1
+                continue
+            if not (
+                market.get("swap")
+                and market.get("linear")
+                and market.get("settle") == "USDT"
+                and not market.get("expiry")
+            ):
+                skipped_not_perpetual += 1
+                continue
+
+            last = ticker.get("last")
+            # A bool is an int in Python, and a str would sail through float().
+            # `last` is None on a contract that has not traded — that is "not
+            # measured", not a price of zero, so it is skipped rather than stored
+            # as 0.0 for something else to divide by.
+            if isinstance(last, bool) or not isinstance(last, (int, float)):
+                skipped_no_last += 1
+                continue
+            if last <= 0:
+                skipped_no_last += 1
+                continue
+
+            prices[f"{market['base']}/{market['quote']}"] = float(last)
+
+        if not prices:
+            # Loud, and specific about which filter emptied it, because the
+            # previous version of this failure was indistinguishable from an
+            # outage for months.
+            logger.error(
+                "fetch_tickers returned %d tickers but NONE were usable USDT perpetuals "
+                "(%d had no market metadata, %d were not linear USDT perpetuals, "
+                "%d had no usable last price). The price cache is empty — this is a "
+                "filter mismatch, not a network failure.",
+                len(tickers),
+                skipped_no_market,
+                skipped_not_perpetual,
+                skipped_no_last,
+            )
+        else:
+            logger.debug(
+                "Resolved %d USDT perpetual prices from %d tickers.", len(prices), len(tickers)
+            )
+        return prices
 
     async def fetch_ohlcv(self, symbol: str, timeframe: str = '1h', limit: int = 100) -> list:
         """Fetch OHLCV candles for a symbol."""

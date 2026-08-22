@@ -3,16 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "set NODE_OPTIONS=--max-old-space-size=512 && next dev",
-    "build": "next build",
+    "dev": "set NODE_OPTIONS=--max-old-space-size=4096 && next dev",
+    "build": "set NODE_OPTIONS=--max-old-space-size=4096 && next build",
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@types/pg": "^8.23.1",
     "lightweight-charts": "^5.2.0",
     "next": "14.2.35",
+    "pg": "^8.23.0",
     "react": "18.3.1",
     "react-dom": "18.3.1"
   },

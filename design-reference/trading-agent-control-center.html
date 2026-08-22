@@ -1,0 +1,1594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Trading Agent — Control Center</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root{
+    --bg-app:#0A0B0D; --bg-surface:#111318; --bg-surface-2:#16181F;
+    --border:#23262E; --border-strong:#2E323C;
+    --text-primary:#E7E9EE; --text-secondary:#8A8F9C; --text-muted:#5B606B;
+    --accent:#3B82F6; --accent-2:#3B82F6; --positive:#16C784; --negative:#EA3943; --warning:#F0B90B;
+    --card-bg-img:none; --glow:none; --header-grad:none; --orb-opacity:0;
+  }
+  /* Aurora — softened: same idea, much less saturated/glowy than before */
+  body[data-theme="aurora"]{
+    --bg-app:#0D0D14; --bg-surface:#15141F; --bg-surface-2:#1A1926;
+    --border:#26243A; --border-strong:#37344F;
+    --text-primary:#EDEBF5; --text-secondary:#9B96B8; --text-muted:#66628A;
+    --accent:#7C6FE0; --accent-2:#B8659A; --positive:#3FBF98; --negative:#D5657A; --warning:#D6A75B;
+    --card-bg-img:linear-gradient(155deg, rgba(124,111,224,.05), rgba(184,101,154,.02) 45%, transparent 75%);
+    --glow:0 0 16px rgba(124,111,224,.12);
+    --header-grad:linear-gradient(90deg,#7C6FE0,#B8659A 60%,#3B82F6);
+    --orb-opacity:.28;
+  }
+  body[data-theme="aurora"] .card, body[data-theme="aurora"] .card-2{background-image:var(--card-bg-img);}
+  body[data-theme="aurora"] .flow-node.st-RUNNING{box-shadow:0 0 0 1px var(--accent), 0 0 16px rgba(124,111,224,.28);}
+  body[data-theme="aurora"] #btn-cmd{background:linear-gradient(90deg,var(--accent),var(--accent-2)); color:#fff; border:none;}
+  body[data-theme="aurora"] .accent-grad{background:linear-gradient(90deg,var(--accent),var(--accent-2)); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  body[data-theme="aurora"] .app-logo{background:linear-gradient(135deg,var(--accent),var(--accent-2));}
+
+  /* Platinum — elegant, muted, luxury graphite + champagne gold + emerald */
+  body[data-theme="platinum"]{
+    --bg-app:#0E0D0C; --bg-surface:#171512; --bg-surface-2:#1C1917;
+    --border:#2B2723; --border-strong:#3D3831;
+    --text-primary:#F1ECE0; --text-secondary:#B0A491; --text-muted:#726A5C;
+    --accent:#C9A961; --accent-2:#E8CE8E; --positive:#5FA98A; --negative:#B5636F; --warning:#C9A961;
+    --card-bg-img:linear-gradient(160deg, rgba(201,169,97,.045), transparent 55%);
+    --glow:0 0 14px rgba(201,169,97,.14);
+    --header-grad:linear-gradient(90deg,#C9A961,#E8CE8E);
+    --orb-opacity:.10;
+  }
+  body[data-theme="platinum"] .card, body[data-theme="platinum"] .card-2{background-image:var(--card-bg-img); border-color:var(--border);}
+  body[data-theme="platinum"] .flow-node.st-RUNNING{box-shadow:0 0 0 1px var(--accent), 0 0 14px rgba(201,169,97,.22);}
+  body[data-theme="platinum"] #btn-cmd{background:linear-gradient(90deg,var(--accent),var(--accent-2)); color:#171512; border:none; font-weight:600;}
+  body[data-theme="platinum"] .accent-grad{background:linear-gradient(90deg,var(--accent),var(--accent-2)); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  body[data-theme="platinum"] .app-logo{background:linear-gradient(135deg,var(--accent),var(--accent-2)); color:#171512 !important;}
+  body[data-theme="platinum"] .navlink.active{border-left-color:var(--accent);}
+  body[data-theme="platinum"] table.term thead th{color:var(--text-muted);}
+
+  .bg-orb{position:fixed; border-radius:999px; filter:blur(90px); pointer-events:none; z-index:0; opacity:var(--orb-opacity); transition:opacity .3s;}
+  html,body{background:var(--bg-app); color:var(--text-primary); font-family:'Inter',system-ui,sans-serif; margin:0;}
+  .mono{font-family:'IBM Plex Mono','JetBrains Mono',ui-monospace,monospace; font-variant-numeric:tabular-nums;}
+  ::-webkit-scrollbar{width:8px; height:8px;}
+  ::-webkit-scrollbar-thumb{background:var(--border-strong); border-radius:4px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+  .card{background:var(--bg-surface); border:1px solid var(--border); border-radius:6px;}
+  .card-2{background:var(--bg-surface-2); border:1px solid var(--border);}
+  .hairline{border-color:var(--border);}
+  .navlink{color:var(--text-secondary); font-size:13px;}
+  .navlink:hover{background:var(--bg-surface-2); color:var(--text-primary);}
+  .navlink.active{background:rgba(59,130,246,0.1); color:var(--accent); border-left:2px solid var(--accent);}
+  .badge{display:inline-flex; align-items:center; gap:5px; font-size:10.5px; letter-spacing:.03em; text-transform:uppercase; padding:2px 7px; border-radius:99px; font-weight:600;}
+  .dot{width:6px; height:6px; border-radius:99px; display:inline-block;}
+  .pulse{animation:pulse 1.6s ease-in-out infinite;}
+  @keyframes pulse{0%,100%{opacity:1} 50%{opacity:.35}}
+  table.term td, table.term th{padding:7px 10px; white-space:nowrap;}
+  table.term thead th{font-size:10.5px; text-transform:uppercase; letter-spacing:.03em; color:var(--text-muted); border-bottom:1px solid var(--border); text-align:left; position:sticky; top:0; background:var(--bg-surface);}
+  table.term tbody tr{border-bottom:1px solid var(--border);}
+  table.term tbody tr:hover{background:var(--bg-surface-2);}
+  .num{text-align:right;}
+  .page{display:none;}
+  .page.active{display:block;}
+  .chip{font-size:12px; padding:5px 10px; border:1px solid var(--border-strong); border-radius:6px; color:var(--text-secondary); background:var(--bg-surface-2); cursor:pointer;}
+  .chip.on{border-color:var(--accent); color:var(--accent); background:rgba(59,130,246,.08);}
+  .scrollbox{max-height:100%; overflow:auto;}
+  .gauge-track{background:var(--bg-surface-2); border-radius:99px; height:6px; overflow:hidden;}
+  .modal-backdrop{background:rgba(0,0,0,.6); backdrop-filter: blur(2px);}
+
+  /* ===== Flow / pipeline diagram ===== */
+  .flow-wrap{overflow-x:auto; padding-bottom:4px;}
+  .flow-row{display:flex; align-items:stretch; gap:0; min-width:max-content;}
+  .flow-node{width:168px; shrink:0; flex-shrink:0; border-radius:8px; padding:10px 12px; position:relative; background:var(--bg-surface-2); border:1px solid var(--border-strong);}
+  .flow-node.st-COMPLETED{border-color:rgba(22,199,132,.5);}
+  .flow-node.st-RUNNING{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent), 0 0 16px rgba(59,130,246,.25);}
+  .flow-node.st-WAITING{border-color:rgba(240,185,11,.5);}
+  .flow-node.st-FAILED{border-color:rgba(234,57,67,.6);}
+  .flow-node.st-IDLE, .flow-node.st-SKIPPED{opacity:.55;}
+  .flow-edge{width:34px; shrink:0; flex-shrink:0; display:flex; align-items:center; justify-content:center; position:relative;}
+  .flow-edge svg{overflow:visible;}
+  .flow-edge .line{stroke:var(--border-strong); stroke-width:2;}
+  .flow-edge.done .line{stroke:var(--positive);}
+  .flow-edge .flowdot{fill:var(--accent); opacity:0;}
+  .flow-edge.active .flowdot{opacity:1; animation:flowmove 1.1s linear infinite;}
+  @keyframes flowmove{ 0%{transform:translateX(-15px); opacity:0;} 15%{opacity:1;} 85%{opacity:1;} 100%{transform:translateX(15px); opacity:0;} }
+
+  /* ===== Trade journey (per-trade explainability) ===== */
+  .journey-wrap{overflow-x:auto; padding-bottom:6px;}
+  .journey-row{display:flex; align-items:flex-start; min-width:max-content;}
+  .journey-step{width:172px; flex-shrink:0;}
+  .journey-node{border-radius:8px; padding:10px; background:var(--bg-surface-2); border:1px solid var(--border);}
+  .journey-node.ok{border-color:rgba(22,199,132,.45);}
+  .journey-node.warn{border-color:rgba(240,185,11,.45);}
+  .journey-node.fail{border-color:rgba(234,57,67,.5);}
+  .journey-icon{width:26px; height:26px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:13px; margin-bottom:6px;}
+  .journey-connector{width:24px; flex-shrink:0; padding-top:22px;}
+  .journey-connector svg{overflow:visible;}
+
+  /* ===== Home / hero page ===== */
+  .ticker-strip{display:flex; gap:18px; overflow-x:auto; white-space:nowrap;}
+  .hero-num{font-size:44px; line-height:1; font-weight:800; letter-spacing:-0.02em;}
+  .stepper-row{display:flex; align-items:center; min-width:max-content;}
+  .step-pill{display:flex; flex-direction:column; align-items:center; gap:4px; padding:8px 16px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface-2); min-width:84px;}
+  .step-pill.active{border-color:var(--accent); box-shadow:var(--glow, 0 0 0 rgba(0,0,0,0)); background:color-mix(in srgb, var(--accent) 10%, var(--bg-surface-2));}
+  .step-num{width:20px;height:20px;border-radius:99px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;background:var(--bg-surface); border:1px solid var(--border-strong);}
+  .step-pill.active .step-num{background:var(--accent); border-color:var(--accent); color:#fff;}
+  .step-connector{width:26px; height:2px; background:var(--border-strong); flex-shrink:0;}
+  .swarm-box{position:relative; border-radius:8px; overflow:hidden; background:radial-gradient(120% 100% at 50% 0%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 60%);}
+  .swarm-corner{position:absolute; z-index:2; font-size:11px;}
+
+  /* ===== Chat page ===== */
+  .chat-scroll{overflow-y:auto;}
+  .bubble{max-width:78%; padding:10px 13px; border-radius:12px; font-size:13px; line-height:1.5;}
+  .bubble.user{background:var(--accent); color:#fff; border-bottom-right-radius:3px;}
+  .bubble.assistant{background:var(--bg-surface-2); border:1px solid var(--border); border-bottom-left-radius:3px;}
+  .avatar{width:26px; height:26px; border-radius:7px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; flex-shrink:0;}
+
+  /* ===== Live Agent Inspector ===== */
+  .live-dot{width:7px;height:7px;border-radius:99px;background:var(--positive); box-shadow:0 0 0 0 rgba(22,199,132,.6); animation:livepulse 1.4s infinite;}
+  @keyframes livepulse{0%{box-shadow:0 0 0 0 color-mix(in srgb, var(--positive) 55%, transparent);} 70%{box-shadow:0 0 0 8px transparent;} 100%{box-shadow:0 0 0 0 transparent;}}
+  .btn-live{display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:600; padding:5px 10px; border-radius:6px; border:1px solid color-mix(in srgb, var(--positive) 45%, var(--border-strong)); color:var(--positive); background:color-mix(in srgb, var(--positive) 8%, transparent); cursor:pointer;}
+  .news-item{border-left:2px solid var(--border-strong); padding:6px 10px; margin-bottom:6px; border-radius:0 6px 6px 0; background:var(--bg-surface-2);}
+  .news-item.pos{border-left-color:var(--positive);}
+  .news-item.neg{border-left-color:var(--negative);}
+  .news-item.neu{border-left-color:var(--text-muted);}
+  .log-line{opacity:0; animation:logfade .35s ease forwards;}
+  @keyframes logfade{ to{opacity:1;} }
+  .analysis-bar-label{display:flex; justify-content:space-between; font-size:11px; margin-bottom:3px;}
+  .live-scroll{max-height:100%; overflow-y:auto;}
+</style>
+</head>
+<body class="text-[13px]">
+
+<div class="bg-orb" style="width:520px;height:520px; top:-160px; left:-120px; background:radial-gradient(circle, var(--accent), transparent 70%);"></div>
+<div class="bg-orb" style="width:460px;height:460px; bottom:-160px; right:-100px; background:radial-gradient(circle, var(--accent-2), transparent 70%);"></div>
+<div class="bg-orb" style="width:360px;height:360px; top:40%; right:20%; background:radial-gradient(circle, var(--positive), transparent 70%); opacity:0;"></div>
+
+<div class="flex h-screen w-screen overflow-hidden relative z-10">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="w-[220px] shrink-0 border-r hairline flex flex-col" style="background:var(--bg-surface)">
+    <div class="h-14 flex items-center gap-2 px-4 border-b hairline shrink-0">
+      <div class="app-logo w-6 h-6 rounded flex items-center justify-center text-white font-bold text-[11px]" style="background:var(--accent)">A</div>
+      <div class="font-semibold text-[13px] tracking-tight">Agent Control</div>
+    </div>
+    <nav id="sidebar-nav" class="flex-1 overflow-y-auto py-2"></nav>
+    <div class="p-3 border-t hairline text-[10.5px] text-[var(--text-muted)] mono">v1.0.0 · build 2026.08</div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <div class="flex-1 flex flex-col min-w-0">
+
+    <!-- ============ TOP BAR ============ -->
+    <header class="h-12 shrink-0 border-b hairline flex items-center justify-between px-4 gap-4" style="background:var(--bg-surface)">
+      <div class="flex items-center gap-4 overflow-x-auto">
+        <div class="flex items-center gap-1.5"><span class="dot pulse" style="background:var(--positive)"></span><span class="text-[var(--text-secondary)]">Agent</span><span class="font-medium">Running</span></div>
+        <div class="flex items-center gap-1.5"><span class="dot" style="background:var(--positive)"></span><span class="text-[var(--text-secondary)]">Exchange</span><span class="font-medium">Connected</span></div>
+        <div class="flex items-center gap-1.5"><span class="dot pulse" style="background:var(--positive)"></span><span class="text-[var(--text-secondary)]">WS</span><span class="font-medium mono" id="topbar-latency">Live · 41ms</span></div>
+        <div class="badge" style="background:rgba(240,185,11,.1); color:var(--warning)">Paper Mode</div>
+      </div>
+      <div class="flex items-center gap-5 mono shrink-0">
+        <div><span class="text-[var(--text-muted)] text-[11px]">EQUITY</span><div class="font-semibold">$994,953.00</div></div>
+        <div><span class="text-[var(--text-muted)] text-[11px]">TODAY P&amp;L</span><div class="font-semibold" style="color:var(--positive)">+$1,820.44</div></div>
+        <div><span class="text-[var(--text-muted)] text-[11px]">POSITIONS</span><div class="font-semibold">3</div></div>
+        <div><span class="text-[var(--text-muted)] text-[11px]">RISK</span><div class="font-semibold" style="color:var(--positive)">Normal</div></div>
+        <div class="flex items-center gap-2 pl-3 ml-1 border-l hairline">
+          <button id="btn-theme" class="px-2.5 py-1.5 rounded border hairline text-[12px] hover:bg-[var(--bg-surface-2)] flex items-center gap-1.5" onclick="toggleTheme()">
+            <span id="theme-icon">◐</span><span id="theme-label">Aurora</span>
+          </button>
+          <button id="btn-pause" class="px-3 py-1.5 rounded border hairline text-[12px] hover:bg-[var(--bg-surface-2)]">⏸ Pause</button>
+          <button id="btn-estop" class="px-3 py-1.5 rounded text-[12px] font-semibold text-white" style="background:var(--negative)">⛔ Emergency Stop</button>
+          <button id="btn-cmd" class="px-3 py-1.5 rounded border hairline text-[12px] hover:bg-[var(--bg-surface-2)]" style="border-color:var(--accent); color:var(--accent)">✦ Ask Agent</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- ============ PAGE CONTENT ============ -->
+    <main id="main" class="flex-1 overflow-y-auto p-4"></main>
+  </div>
+</div>
+
+<!-- Emergency stop modal -->
+<div id="estop-modal" class="fixed inset-0 modal-backdrop hidden items-center justify-center z-50">
+  <div class="card w-[420px] p-5">
+    <div class="flex items-center gap-2 mb-2" style="color:var(--negative)"><span class="font-semibold">⛔ Confirm Emergency Stop</span></div>
+    <p class="text-[var(--text-secondary)] mb-3 leading-relaxed">Emergency stop will immediately prevent new autonomous orders. Existing open positions will <span class="text-[var(--text-primary)]">not</span> be auto-closed. This action is logged and cannot be undone from this dialog.</p>
+    <p class="text-[11px] text-[var(--text-muted)] mb-2">Type <b class="mono text-[var(--text-primary)]">STOP</b> to confirm.</p>
+    <input id="estop-input" class="w-full card-2 rounded px-3 py-2 mono mb-3 outline-none" placeholder="STOP">
+    <div class="flex justify-end gap-2">
+      <button onclick="closeEstop()" class="px-3 py-1.5 rounded border hairline text-[12px]">Cancel</button>
+      <button id="estop-confirm" disabled class="px-3 py-1.5 rounded text-[12px] font-semibold text-white opacity-40" style="background:var(--negative)">Confirm Stop</button>
+    </div>
+  </div>
+</div>
+
+<!-- Trade journey modal ("how it worked") -->
+<div id="journey-modal" class="fixed inset-0 modal-backdrop hidden items-center justify-center z-50 p-6">
+  <div class="card w-full max-w-[920px] p-5">
+    <div class="flex justify-between items-center mb-1">
+      <div id="journey-modal-title" class="font-semibold">How this trade worked</div>
+      <button onclick="closeJourneyModal()" class="text-[var(--text-muted)] hover:text-[var(--text-primary)]">✕</button>
+    </div>
+    <div id="journey-modal-sub" class="text-[12px] text-[var(--text-secondary)] mb-3"></div>
+    <div id="journey-modal-body"></div>
+  </div>
+</div>
+
+<!-- Live Agent Inspector: what the agent is doing right now for a live trade -->
+<div id="live-modal" class="fixed inset-0 modal-backdrop hidden items-center justify-center z-50 p-6">
+  <div class="card w-full max-w-[1180px] max-h-[88vh] flex flex-col overflow-hidden">
+    <div class="flex items-center justify-between px-5 py-3 border-b hairline shrink-0">
+      <div class="flex items-center gap-3">
+        <span class="live-dot"></span>
+        <div>
+          <div id="live-title" class="font-semibold text-[14px]">Live Agent Activity — ETHUSDT</div>
+          <div id="live-sub" class="text-[11px] text-[var(--text-secondary)]"></div>
+        </div>
+      </div>
+      <button onclick="closeLiveInspector()" class="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-[16px]">✕</button>
+    </div>
+
+    <div class="px-5 pt-3 shrink-0">
+      <div id="live-stage-row"></div>
+    </div>
+
+    <div class="flex-1 overflow-y-auto px-5 py-3">
+      <div class="grid grid-cols-3 gap-4 mb-4">
+        <div class="card-2 rounded p-3">
+          <div class="text-[11px] text-[var(--text-muted)] uppercase mb-2 flex items-center justify-between">
+            <span>📰 Reading News</span><span class="mono text-[10px]">live feed</span>
+          </div>
+          <div id="live-news" class="live-scroll" style="max-height:230px"></div>
+        </div>
+        <div class="card-2 rounded p-3">
+          <div class="text-[11px] text-[var(--text-muted)] uppercase mb-2 flex items-center justify-between">
+            <span>🔮 Reading Polymarket</span><span class="mono text-[10px]">live odds</span>
+          </div>
+          <div id="live-polymarket" class="live-scroll" style="max-height:230px"></div>
+        </div>
+        <div class="card-2 rounded p-3">
+          <div class="text-[11px] text-[var(--text-muted)] uppercase mb-2">📊 Market Condition Analysis</div>
+          <div id="live-analysis"></div>
+        </div>
+      </div>
+
+      <div class="card-2 rounded p-3">
+        <div class="text-[11px] text-[var(--text-muted)] uppercase mb-2 flex items-center gap-2"><span class="live-dot" style="width:5px;height:5px"></span>Live Agent Console</div>
+        <div id="live-console" class="mono text-[11.5px] space-y-1.5 live-scroll" style="max-height:180px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Command center drawer -->
+<div id="cmd-drawer" class="fixed top-0 right-0 h-full w-[360px] card border-l hairline translate-x-full transition-transform duration-200 z-40 flex flex-col">
+  <div class="h-12 flex items-center justify-between px-4 border-b hairline shrink-0">
+    <div class="font-semibold text-[13px]">Ask Agent</div>
+    <button onclick="toggleCmd(false)" class="text-[var(--text-muted)] hover:text-[var(--text-primary)]">✕</button>
+  </div>
+  <div id="cmd-log" class="flex-1 overflow-y-auto p-3 space-y-3 text-[12.5px]"></div>
+  <div class="p-3 border-t hairline shrink-0">
+    <div class="flex flex-wrap gap-1.5 mb-2">
+      <button class="chip" onclick="askAgent('Why are you waiting on ETH?')">Why waiting on ETH?</button>
+      <button class="chip" onclick="askAgent('Why did you choose SOL instead of ETH?')">SOL vs ETH?</button>
+      <button class="chip" onclick="askAgent('What is the current market regime?')">Market regime?</button>
+      <button class="chip" onclick="askAgent('What caused the recent losses?')">Recent losses?</button>
+    </div>
+    <input id="cmd-input" class="w-full card-2 rounded px-3 py-2 outline-none" placeholder="Ask the agent…" onkeydown="if(event.key==='Enter')askAgent(this.value)">
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   MOCK DATA — // TODO: REMOVE MOCK DATA (wire to real backend)
+   ============================================================ */
+const MOCK = {
+  markets: [
+    {sym:'ETHUSDT', price:3421.55, chg:2.14, trend:'Up', momentum:0.62, vol:0.031, funding:0.0041, oi:'812.4M', agent:'RUNNING', conf:71},
+    {sym:'SOLUSDT', price:186.22, chg:-1.08, trend:'Down', momentum:-0.21, vol:0.048, funding:-0.0009, oi:'214.9M', agent:'SCANNING', conf:48},
+    {sym:'DOGEUSDT', price:0.2231, chg:4.62, trend:'Up', momentum:0.83, vol:0.061, funding:0.0088, oi:'96.2M', agent:'WAITING', conf:59},
+  ],
+  positions: [
+    {asset:'ETHUSDT', side:'Long', size:2.4, entry:3355.10, mark:3421.55, lev:'5x', sl:3290.00, tp:3520.00, pnl:159.48, roe:'11.9%', strategy:'Coherence Trend Following', status:'HEALTHY'},
+    {asset:'SOLUSDT', side:'Short', size:180, entry:189.40, mark:186.22, lev:'4x', sl:196.00, tp:172.00, pnl:572.40, roe:'6.7%', strategy:'Signal Flip Momentum', status:'HEALTHY'},
+    {asset:'DOGEUSDT', side:'Long', size:52000, entry:0.2105, mark:0.2231, lev:'3x', sl:0.2020, tp:0.2400, pnl:655.20, roe:'17.9%', strategy:'ChartSense FFT Entry', status:'WATCH'},
+  ],
+  orders: [
+    {id:'ORD-88213', asset:'ETHUSDT', side:'Buy', type:'Market', qty:2.4, price:3355.10, status:'FILLED', created:'09:14:02', filled:'09:14:02', avgFill:3355.12, slippage:'0.02bps', latency:'118ms'},
+    {id:'ORD-88214', asset:'ETHUSDT', side:'Sell', type:'Limit', qty:2.4, price:3520.00, status:'OPEN', created:'09:14:03', filled:'—', avgFill:'—', slippage:'—', latency:'—'},
+    {id:'ORD-88208', asset:'SOLUSDT', side:'Sell', type:'Market', qty:180, price:189.40, status:'FILLED', created:'07:52:41', filled:'07:52:41', avgFill:189.38, slippage:'0.01bps', latency:'94ms'},
+    {id:'ORD-88190', asset:'DOGEUSDT', side:'Buy', type:'Market', qty:52000, price:0.2105, status:'REJECTED', created:'06:02:11', filled:'—', avgFill:'—', slippage:'—', latency:'201ms'},
+  ],
+  execFlow: ['Agent Decision','Risk Approval','Order Creation','Exchange Request','Exchange Response','Fill','Position Update'],
+  agentNodes: [
+    {name:'ingest_market_data', status:'COMPLETED', dur:'82ms', out:'3 assets refreshed'},
+    {name:'compute_indicators', status:'COMPLETED', dur:'146ms', out:'EMA/RSI/VWAP computed'},
+    {name:'regime_classifier', status:'COMPLETED', dur:'53ms', out:'Regime: Trend-Up (0.61)'},
+    {name:'strategy_router', status:'RUNNING', dur:'—', out:'Evaluating 6 strategies'},
+    {name:'risk_check', status:'WAITING', dur:'—', out:'Pending strategy output'},
+    {name:'execution_planner', status:'IDLE', dur:'—', out:'—'},
+    {name:'learning_feedback', status:'SKIPPED', dur:'—', out:'No closed trades this cycle'},
+  ],
+  decisions: [
+    {id:'DEC-4471', ts:'09:14:01', asset:'ETHUSDT', decision:'OPEN LONG', strategy:'Coherence Trend Following', conf:71, risk:'PASS', entry:3355.10, stop:3290.00, target:3520.00, result:'OPEN'},
+    {id:'DEC-4462', ts:'07:52:40', asset:'SOLUSDT', decision:'OPEN SHORT', strategy:'Signal Flip Momentum', conf:64, risk:'PASS', entry:189.40, stop:196.00, target:172.00, result:'OPEN'},
+    {id:'DEC-4448', ts:'06:02:10', asset:'DOGEUSDT', decision:'OPEN LONG', strategy:'ChartSense FFT Entry', conf:55, risk:'WARN', entry:0.2105, stop:0.2020, target:0.2400, result:'OPEN'},
+    {id:'DEC-4402', ts:'Yesterday 22:11', asset:'ETHUSDT', decision:'CLOSE LONG', strategy:'Coherence Trend Following', conf:69, risk:'PASS', entry:3298.0, stop:3240.0, target:3400.0, result:'+$212.40'},
+    {id:'DEC-4389', ts:'Yesterday 18:47', asset:'SOLUSDT', decision:'HOLD', strategy:'Entropy-Based Hedging', conf:41, risk:'FAIL', entry:'—', stop:'—', target:'—', result:'SKIPPED'},
+  ],
+  decisionDetail: {
+    signals: [
+      {label:'Trend', val:'Bullish (0.71)', state:'PASS'},
+      {label:'Momentum', val:'Rising (0.62)', state:'PASS'},
+      {label:'Volume', val:'Above avg (+18%)', state:'PASS'},
+      {label:'Open Interest', val:'+4.1% (24h)', state:'PASS'},
+      {label:'Funding', val:'0.0041% (neutral)', state:'PASS'},
+      {label:'Volatility', val:'Elevated (3.1%)', state:'WARN'},
+      {label:'Sentiment', val:'Not available', state:'WARN'},
+    ],
+    risk: [
+      {label:'Position Size', val:'2.4 ETH (2.1% equity)', state:'PASS'},
+      {label:'Leverage', val:'5x (max 10x)', state:'PASS'},
+      {label:'Stop Distance', val:'1.9% from entry', state:'PASS'},
+      {label:'R Multiple', val:'2.5R target', state:'PASS'},
+      {label:'Daily Loss Limit', val:'0.4% used of 2%', state:'PASS'},
+      {label:'Exposure', val:'34% of max exposure', state:'PASS'},
+      {label:'Drawdown', val:'1.1% (limit 8%)', state:'PASS'},
+    ],
+  },
+  strategies: [
+    {name:'Coherence Trend Following', status:'ACTIVE', trades:214, winRate:'61.2%', pf:1.84, avgR:'1.4R', avgRet:'+0.92%', maxDD:'-4.1%', suitability:'High (trend regime)'},
+    {name:'Signal Flip Momentum Capture', status:'ACTIVE', trades:167, winRate:'58.0%', pf:1.61, avgR:'1.1R', avgRet:'+0.71%', maxDD:'-5.6%', suitability:'Medium'},
+    {name:'ChartSense FFT Entry', status:'ACTIVE', trades:98, winRate:'54.1%', pf:1.32, avgR:'0.9R', avgRet:'+0.44%', maxDD:'-6.8%', suitability:'Medium'},
+    {name:'Entropy-Based Hedging', status:'SCANNING', trades:41, winRate:'46.3%', pf:0.94, avgR:'0.3R', avgRet:'-0.08%', maxDD:'-9.2%', suitability:'Low (choppy only)'},
+    {name:'Volatility-Triggered Breakout', status:'PAUSED', trades:23, winRate:'39.1%', pf:0.71, avgR:'-0.2R', avgRet:'-0.61%', maxDD:'-11.4%', suitability:'Not suitable now'},
+  ],
+  risk: {
+    equity:994953, avail:846120, margin:148833, exposure:'34%', leverage:'4.2x avg', riskPerTrade:'2%', dailyLoss:'0.4% / 2%', drawdown:'1.1% / 8%', posCount:3, liqDist:'18.2% nearest',
+    checks:[
+      {label:'Daily Loss Cap', pct:20, state:'PASS'},
+      {label:'Max Exposure', pct:34, state:'PASS'},
+      {label:'Max Position Size', pct:42, state:'PASS'},
+      {label:'Drawdown Budget', pct:14, state:'PASS'},
+      {label:'Correlation Risk', pct:61, state:'WARN'},
+    ]
+  },
+  learning: {analyzed:1842, wins:1071, losses:771, patterns:14, adjustments:6, cycles:38, last:'2h 14m ago',
+    failures: [
+      {group:'DOGEUSDT · Breakout Strategy · High Volatility', count:18, avgLoss:'-1.4R'},
+      {group:'SOLUSDT · Hedging Strategy · Ranging Regime', count:12, avgLoss:'-0.9R'},
+      {group:'ETHUSDT · Momentum Strategy · Low Volume (Asia session)', count:9, avgLoss:'-1.1R'},
+    ]
+  },
+  systemServices: [
+    {name:'LangGraph Orchestrator', status:'HEALTHY', latency:'22ms', errors:0, uptime:'99.98%'},
+    {name:'Trading API', status:'HEALTHY', latency:'41ms', errors:0, uptime:'99.99%'},
+    {name:'Database', status:'HEALTHY', latency:'6ms', errors:0, uptime:'100%'},
+    {name:'Redis Cache', status:'HEALTHY', latency:'2ms', errors:0, uptime:'100%'},
+    {name:'Exchange REST', status:'DEGRADED', latency:'380ms', errors:3, uptime:'99.71%'},
+    {name:'Exchange WebSocket', status:'HEALTHY', latency:'41ms', errors:0, uptime:'99.95%', reconnects:1},
+    {name:'Market Data Feed', status:'HEALTHY', latency:'19ms', errors:0, uptime:'99.99%'},
+    {name:'Learning Pipeline', status:'HEALTHY', latency:'—', errors:0, uptime:'99.90%'},
+  ],
+  logs: [
+    {ts:'09:14:03', level:'INFO', service:'execution', asset:'ETHUSDT', msg:'Order ORD-88214 placed (limit, TP)'},
+    {ts:'09:14:02', level:'INFO', service:'execution', asset:'ETHUSDT', msg:'Order ORD-88213 filled at 3355.12'},
+    {ts:'09:14:01', level:'INFO', service:'agent', asset:'ETHUSDT', msg:'Decision DEC-4471 → OPEN LONG (conf 71%)'},
+    {ts:'09:12:55', level:'WARNING', service:'risk', asset:'DOGEUSDT', msg:'Volatility check WARN — proceeding with reduced size'},
+    {ts:'08:41:12', level:'ERROR', service:'exchange-rest', asset:'—', msg:'Timeout on GET /v1/account (retried, succeeded)'},
+    {ts:'07:52:41', level:'INFO', service:'execution', asset:'SOLUSDT', msg:'Order ORD-88208 filled at 189.38'},
+    {ts:'06:02:12', level:'CRITICAL', service:'execution', asset:'DOGEUSDT', msg:'Order ORD-88190 REJECTED — insufficient margin buffer'},
+  ],
+  // News being ingested/read by the agent's research node, per asset
+  newsFeed: {
+    ETHUSDT: [
+      {source:'CoinDesk', headline:'Ethereum staking withdrawals hit new monthly low as validators lock in yield', sentiment:'pos', relevance:0.81, time:'2m ago'},
+      {source:'The Block', headline:'ETH L2 activity climbs 14% week-over-week amid lower gas fees', sentiment:'pos', relevance:0.74, time:'11m ago'},
+      {source:'Reuters', headline:'Fed officials signal patience on rate cuts, markets little changed', sentiment:'neu', relevance:0.52, time:'26m ago'},
+      {source:'Decrypt', headline:'Large ETH wallet moves $42M to exchange, traders watch for sell pressure', sentiment:'neg', relevance:0.68, time:'41m ago'},
+    ],
+    SOLUSDT: [
+      {source:'CoinDesk', headline:'Solana network outage risk called "low" after latest client upgrade', sentiment:'pos', relevance:0.63, time:'6m ago'},
+      {source:'The Block', headline:'SOL derivatives funding turns negative as shorts build', sentiment:'neg', relevance:0.79, time:'18m ago'},
+      {source:'Decrypt', headline:'Solana DEX volume slips 9% as traders rotate into ETH L2s', sentiment:'neg', relevance:0.71, time:'33m ago'},
+    ],
+    DOGEUSDT: [
+      {source:'CoinTelegraph', headline:'DOGE social mentions spike 3x on renewed meme-coin interest', sentiment:'pos', relevance:0.58, time:'4m ago'},
+      {source:'The Block', headline:'Meme-coin sector volatility rises as broader crypto risk appetite improves', sentiment:'neu', relevance:0.49, time:'22m ago'},
+      {source:'Decrypt', headline:'Whale wallet accumulates 40M DOGE over past 48 hours', sentiment:'pos', relevance:0.66, time:'55m ago'},
+    ],
+  },
+  // Granular action templates the live console cycles through (structured, not chain-of-thought)
+  liveLogTemplates: [
+    'Fetching order book depth (L2) for {asset}',
+    'Pulling latest funding rate and open interest snapshot',
+    'Scanning news feed for {asset}-relevant headlines ({count} sources)',
+    'Scoring headline relevance and sentiment against {asset} exposure',
+    'Polymarket-slot',
+    'Polymarket-slot',
+    'Recomputing technical indicators (EMA/RSI/VWAP) on 5m/1h timeframes',
+    'Cross-referencing volatility percentile vs. 30-day baseline',
+    'Updating regime classifier — current read: Trend-Up (0.61)',
+    'Refreshing ensemble model confidence for {asset}',
+    'Running position-size check against daily loss budget',
+    'Checking correlation exposure across open positions',
+    'Evaluating stop/target distance against current ATR',
+    'Writing decision snapshot to agent state for this cycle',
+  ],
+  // Polymarket prediction-market data the agent's research node reads for
+  // macro / event-risk context alongside price action and news
+  polymarket: [
+    {q:'Will ETH ETFs see net inflows this week?', cat:'ETH', yes:0.72, vol:'$1.24M', liq:'$318K', chg:4.1, closes:'Aug 22, 2026', relevance:0.78},
+    {q:'Will the Fed cut rates at the September 2026 meeting?', cat:'Macro', yes:0.61, vol:'$8.42M', liq:'$2.1M', chg:-2.3, closes:'Sep 17, 2026', relevance:0.55},
+    {q:'Will BTC close above $120,000 by end of August?', cat:'BTC', yes:0.34, vol:'$3.06M', liq:'$740K', chg:6.0, closes:'Aug 31, 2026', relevance:0.61},
+    {q:'Will SOL outperform ETH over the next 30 days?', cat:'SOL', yes:0.45, vol:'$540K', liq:'$96K', chg:-3.2, closes:'Sep 19, 2026', relevance:0.66},
+    {q:'Will a major exchange list a new DOGE-based ETF filing this month?', cat:'DOGE', yes:0.18, vol:'$142K', liq:'$41K', chg:1.4, closes:'Aug 29, 2026', relevance:0.39},
+    {q:'Will crypto total market cap exceed $4.2T this quarter?', cat:'Macro', yes:0.57, vol:'$5.11M', liq:'$1.4M', chg:0.8, closes:'Sep 30, 2026', relevance:0.44},
+    {q:'Will Ethereum network fees stay below 5 gwei avg this week?', cat:'ETH', yes:0.66, vol:'$210K', liq:'$58K', chg:2.2, closes:'Aug 24, 2026', relevance:0.52},
+    {q:'Will whale wallets (top 100) increase DOGE holdings this week?', cat:'DOGE', yes:0.61, vol:'$96K', liq:'$22K', chg:9.3, closes:'Aug 24, 2026', relevance:0.44},
+  ],
+};
+
+/* ============================================================
+   NAV STRUCTURE
+   ============================================================ */
+const NAV = [
+  {section:'Home', items:[{id:'home', label:'Home'}]},
+  {section:'Command Center', items:[{id:'dashboard', label:'Dashboard'}]},
+  {section:'Markets', items:[{id:'markets', label:'Live Markets'}, {id:'intel', label:'Market Intelligence'}, {id:'polymarket', label:'Polymarket Signals'}]},
+  {section:'Trading', items:[{id:'positions', label:'Positions'}, {id:'orders', label:'Orders'}, {id:'history', label:'Trade History'}, {id:'execution', label:'Execution'}]},
+  {section:'Agent', items:[{id:'agent', label:'Agent Brain'}, {id:'decisions', label:'Decisions'}, {id:'timeline', label:'Agent Timeline'}, {id:'chat', label:'Agent Chat'}]},
+  {section:'Strategies', items:[{id:'strategies', label:'Strategy Center'}, {id:'strategy-perf', label:'Performance'}]},
+  {section:'Risk', items:[{id:'risk', label:'Risk Center'}, {id:'exposure', label:'Exposure'}]},
+  {section:'Learning', items:[{id:'learning', label:'Learning Center'}, {id:'failures', label:'Failure Analysis'}, {id:'trades', label:'Trade Analysis'}, {id:'replay', label:'Agent Replay'}]},
+  {section:'Research', items:[{id:'backtest', label:'Backtesting Lab'}]},
+  {section:'System', items:[{id:'system', label:'System Health'}, {id:'logs', label:'Event Logs'}, {id:'settings', label:'Settings'}]},
+];
+
+function badge(state){
+  const map = {
+    PASS:['var(--positive)','PASS'], HEALTHY:['var(--positive)','Healthy'], ACTIVE:['var(--positive)','Active'], FILLED:['var(--positive)','Filled'], COMPLETED:['var(--positive)','Completed'], OPEN:['var(--accent)','Open'],
+    WARN:['var(--warning)','Warn'], DEGRADED:['var(--warning)','Degraded'], WATCH:['var(--warning)','Watch'], WAITING:['var(--warning)','Waiting'], SCANNING:['var(--text-secondary)','Scanning'],
+    FAIL:['var(--negative)','Fail'], DOWN:['var(--negative)','Down'], REJECTED:['var(--negative)','Rejected'], FAILED:['var(--negative)','Failed'], CRITICAL:['var(--negative)','Critical'], ERROR:['var(--negative)','Error'],
+    IDLE:['var(--text-muted)','Idle'], SKIPPED:['var(--text-muted)','Skipped'], RUNNING:['var(--accent)','Running'], PAUSED:['var(--text-muted)','Paused'], INFO:['var(--text-secondary)','Info'], WARNING:['var(--warning)','Warning'],
+  };
+  const [c,label] = map[state] || ['var(--text-secondary)', state];
+  const anim = (state==='RUNNING'||state==='SCANNING') ? 'pulse' : '';
+  return `<span class="badge" style="background:color-mix(in srgb, ${c} 18%, transparent);color:${c}"><span class="dot ${anim}" style="background:${c}"></span>${label}</span>`;
+}
+function pnlClass(v){ return v>=0 ? 'style="color:var(--positive)"' : 'style="color:var(--negative)"'; }
+function fmt(n,d=2){ return Number(n).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d}); }
+function sparkline(seed, w=120, h=34, color='var(--positive)'){
+  let pts=[], v=50;
+  for(let i=0;i<24;i++){ v += (Math.sin(i*seed)*6 + (Math.random()-0.5)*8); v=Math.max(10,Math.min(90,v)); pts.push(v); }
+  const step = w/(pts.length-1);
+  const d = pts.map((p,i)=>`${i===0?'M':'L'} ${i*step},${h-(p/100*h)}`).join(' ');
+  return `<svg width="${w}" height="${h}" class="overflow-visible"><path d="${d}" fill="none" stroke="${color}" stroke-width="1.6"/></svg>`;
+}
+function candles(seed=1){
+  let out=''; let x=0; let base=100;
+  for(let i=0;i<40;i++){
+    const o = base + Math.sin(i*0.3+seed)*8 + (Math.random()-0.5)*4;
+    const c = o + (Math.random()-0.48)*10;
+    const hi = Math.max(o,c) + Math.random()*4;
+    const lo = Math.min(o,c) - Math.random()*4;
+    const up = c>=o; const color = up? 'var(--positive)':'var(--negative)';
+    const scaleY = v => 220 - (v-60);
+    out += `<line x1="${x+6}" x2="${x+6}" y1="${scaleY(hi)}" y2="${scaleY(lo)}" stroke="${color}" stroke-width="1"/>`;
+    out += `<rect x="${x+2}" y="${Math.min(scaleY(o),scaleY(c))}" width="8" height="${Math.max(2,Math.abs(scaleY(o)-scaleY(c)))}" fill="${color}"/>`;
+    base = c; x += 14;
+  }
+  return `<svg width="100%" height="230" viewBox="0 0 ${x} 230" preserveAspectRatio="none">${out}</svg>`;
+}
+function gauge(pct, color='var(--accent)'){
+  return `<div class="gauge-track"><div style="width:${pct}%;height:100%;background:${color}"></div></div>`;
+}
+
+/* ============================================================
+   LANGGRAPH FLOW DIAGRAM — visualizes how the model runs, live
+   ============================================================ */
+function edgeSvg(active, done){
+  return `<div class="flow-edge ${active?'active':''} ${done?'done':''}">
+    <svg width="34" height="16"><line class="line" x1="0" y1="8" x2="26" y2="8"/><polygon points="26,3 34,8 26,13" fill="${done?'var(--positive)':'var(--border-strong)'}"/><circle class="flowdot" cx="8" cy="8" r="3"/></svg>
+  </div>`;
+}
+function flowDiagram(nodes){
+  const statusIcon = {COMPLETED:'✓', RUNNING:'●', WAITING:'⏳', IDLE:'·', SKIPPED:'—', FAILED:'✕'};
+  const statusColor = {COMPLETED:'var(--positive)', RUNNING:'var(--accent)', WAITING:'var(--warning)', IDLE:'var(--text-muted)', SKIPPED:'var(--text-muted)', FAILED:'var(--negative)'};
+  let html = '<div class="flow-wrap"><div class="flow-row">';
+  nodes.forEach((n,i)=>{
+    html += `<div class="flow-node st-${n.status}">
+      <div class="flex items-center justify-between mb-1.5">
+        <span class="mono text-[11px] font-semibold" style="color:${statusColor[n.status]}">${statusIcon[n.status]}</span>
+        ${badge(n.status)}
+      </div>
+      <div class="mono text-[11.5px] mb-1 leading-tight">${n.name}</div>
+      <div class="text-[10.5px] text-[var(--text-secondary)] leading-snug">${n.out}</div>
+      ${n.dur!=='—' ? `<div class="mono text-[10px] text-[var(--text-muted)] mt-1">${n.dur}</div>` : ''}
+    </div>`;
+    if(i<nodes.length-1){
+      const done = n.status==='COMPLETED';
+      const active = n.status==='RUNNING' || (done && nodes[i+1].status==='RUNNING');
+      html += edgeSvg(active, done);
+    }
+  });
+  html += '</div></div>';
+  return html;
+}
+
+/* ============================================================
+   TRADE JOURNEY — "how the model worked" for one specific trade
+   Walks: Market Data -> Indicators -> Regime -> Strategy Signal
+          -> Risk Checks -> Decision -> Execution -> Outcome
+   ============================================================ */
+function journeyStep(icon, label, value, state, iconBg){
+  const stateClass = state==='fail'?'fail':(state==='warn'?'warn':'ok');
+  const color = state==='fail'?'var(--negative)':(state==='warn'?'var(--warning)':'var(--positive)');
+  return `<div class="journey-step">
+    <div class="journey-node ${stateClass}">
+      <div class="journey-icon" style="background:color-mix(in srgb, ${iconBg} 20%, transparent);color:${iconBg}">${icon}</div>
+      <div class="text-[10.5px] text-[var(--text-muted)] uppercase mb-0.5">${label}</div>
+      <div class="text-[11.5px] leading-snug mono">${value}</div>
+      <div class="mt-1.5">${badge(state==='fail'?'FAIL':(state==='warn'?'WARN':'PASS'))}</div>
+    </div>
+  </div>`;
+}
+function journeyConnector(){
+  return `<div class="journey-connector"><svg width="24" height="10"><line x1="0" y1="5" x2="16" y2="5" stroke="var(--border-strong)" stroke-width="2"/><polygon points="16,1 24,5 16,9" fill="var(--border-strong)"/></svg></div>`;
+}
+function tradeJourney(d){
+  // d = decision object from MOCK.decisions (or equivalent shape)
+  const steps = [
+    journeyStep('◧','Market Data', d.asset+'\n live tick', 'ok', 'var(--accent)'),
+    journeyStep('∿','Indicators', 'EMA/RSI/VWAP\ncomputed', 'ok', 'var(--accent)'),
+    journeyStep('◈','Regime', 'Trend-Up\n(0.61)', 'ok', 'var(--accent)'),
+    journeyStep('⚡','Strategy Signal', d.strategy.split(' ').slice(0,2).join(' ')+'\nconf '+d.conf+'%', d.conf>=60?'ok':'warn', 'var(--positive)'),
+    journeyStep('⛊','Risk Checks', d.risk==='PASS'?'7/7 passed':(d.risk==='WARN'?'6/7 passed':'blocked'), d.risk.toLowerCase(), 'var(--warning)'),
+    journeyStep('◎','Decision', d.decision, d.result==='SKIPPED'?'warn':'ok', 'var(--accent)'),
+    journeyStep('⇄','Execution', d.result==='SKIPPED'?'not submitted':'order filled', d.result==='SKIPPED'?'warn':'ok', 'var(--positive)'),
+    journeyStep('◉','Outcome', d.result, d.result.startsWith('-')?'fail':'ok', d.result.startsWith('-')?'var(--negative)':'var(--positive)'),
+  ];
+  let html = '<div class="journey-wrap"><div class="journey-row">';
+  steps.forEach((s,i)=>{ html += s; if(i<steps.length-1) html += journeyConnector(); });
+  html += '</div></div>';
+  return html.replace(/\n/g,'<br>');
+}
+
+/* ============================================================
+   PAGE RENDERERS
+   ============================================================ */
+const PAGES = {};
+
+/* ============================================================
+   HOME — hero overview page (rank, PnL, biggest win, execution
+   cycle, live agent-swarm visualization)
+   ============================================================ */
+function execCycle(activeIdx){
+  const steps = ['Scan','Detect','Validate','Size','Fill','Settle'];
+  let html = '<div class="stepper-row">';
+  steps.forEach((s,i)=>{
+    html += `<div class="step-pill ${i===activeIdx?'active':''}"><div class="step-num">${String(i+1).padStart(2,'0')}</div><div class="text-[11px]">${s}</div></div>`;
+    if(i<steps.length-1) html += '<div class="step-connector"></div>';
+  });
+  html += '</div>';
+  return html;
+}
+function swarmSVG(w,h){
+  const layers = [8,18,18,10];
+  const xs = [30, w*0.35, w*0.65, w-30];
+  const colors = ['#22D3EE','#A855F7','#3B82F6','#EC4899'];
+  let positions = layers.map((n,li)=>{
+    const arr=[]; const pad=24;
+    for(let i=0;i<n;i++){ arr.push({x:xs[li], y: pad + (h-2*pad) * (n===1?0.5:i/(n-1))}); }
+    return arr;
+  });
+  let lines='', nodes='';
+  for(let li=0; li<positions.length-1; li++){
+    positions[li].forEach((p,i)=>{
+      const targets = positions[li+1];
+      const connCount = 3 + Math.floor(Math.random()*2);
+      for(let k=0;k<connCount;k++){
+        const t = targets[Math.floor(Math.random()*targets.length)];
+        const active = Math.random() < 0.06;
+        lines += `<path d="M${p.x},${p.y} C ${(p.x+t.x)/2},${p.y} ${(p.x+t.x)/2},${t.y} ${t.x},${t.y}" fill="none" stroke="${active?colors[li+1]:'#8A8F9C'}" stroke-width="${active?1.1:0.5}" opacity="${active?0.55:0.10}"/>`;
+      }
+    });
+  }
+  positions.forEach((layer,li)=>{
+    layer.forEach(p=>{
+      const r = li===0||li===3 ? 3.2 : 2.4;
+      nodes += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${colors[li]}" opacity="0.9"/>`;
+    });
+  });
+  return `<svg width="100%" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet">${lines}${nodes}</svg>`;
+}
+PAGES.home = () => `
+  <div class="ticker-strip mono text-[12px] mb-3 pb-2 border-b hairline">
+    <span class="badge" style="background:color-mix(in srgb, var(--accent) 18%, transparent); color:var(--accent)">● LIVE</span>
+    <span class="text-[var(--text-secondary)]">#1 GLOBAL</span>
+    <span class="text-[var(--text-secondary)]">TOP 0.01%</span>
+    <span style="color:var(--positive)">▲ +17 RANKS / 24H</span>
+    ${MOCK.markets.map(m=>`<span>${m.sym.replace('USDT','')} <span style="color:${m.chg>=0?'var(--positive)':'var(--negative)'}">${m.chg>=0?'+':''}${(m.chg*312).toFixed(0)}</span></span>`).join('')}
+  </div>
+
+  <div class="grid grid-cols-3 gap-3 mb-3">
+    <div class="card p-4 col-span-1">
+      <div class="flex items-center gap-2 mb-2"><span class="badge" style="background:color-mix(in srgb, var(--positive) 18%, transparent); color:var(--positive)">✓ Verified</span><span class="mono text-[11px] text-[var(--text-muted)]">0xB5…7609</span></div>
+      <div class="hero-num mono" style="color:var(--warning)">$994,953</div>
+      <div class="text-[11px] text-[var(--text-secondary)] mb-3">All-time PnL · 61 days · <span style="color:var(--positive)">+2,140%</span></div>
+      <div class="grid grid-cols-3 gap-2 mono text-center">
+        <div class="card-2 rounded p-2"><div class="text-[15px] font-semibold">1,106</div><div class="text-[10px] text-[var(--text-muted)] uppercase">Trades</div></div>
+        <div class="card-2 rounded p-2"><div class="text-[15px] font-semibold" style="color:var(--positive)">58.1%</div><div class="text-[10px] text-[var(--text-muted)] uppercase">Win Rate</div></div>
+        <div class="card-2 rounded p-2"><div class="text-[15px] font-semibold">2.41</div><div class="text-[10px] text-[var(--text-muted)] uppercase">Avg R/R</div></div>
+      </div>
+      <div class="flex items-center justify-between mt-3 pt-3 border-t hairline">
+        <span class="text-[11px] text-[var(--text-muted)] uppercase">Liq Risk</span>
+        <span class="badge" style="background:color-mix(in srgb, var(--positive) 18%, transparent); color:var(--positive)">1.7/10 Safe</span>
+      </div>
+    </div>
+
+    <div class="card p-4">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-[11px] text-[var(--text-muted)] uppercase">★ Biggest Win</span>
+        <span class="badge" style="background:color-mix(in srgb, var(--warning) 18%, transparent); color:var(--warning)">✓ Verified</span>
+      </div>
+      <div class="hero-num mono mb-2" style="font-size:36px; color:var(--positive)">×22.4</div>
+      <div class="grid grid-cols-2 gap-y-1.5 mono text-[12px] text-[var(--text-secondary)]">
+        <div>Entry <span class="text-[var(--text-primary)]">$3,298</span></div>
+        <div>Exit <span class="text-[var(--text-primary)]">$3,520</span></div>
+        <div>Sharpe <span class="text-[var(--text-primary)]">1.84</span></div>
+        <div>APY <span class="text-[var(--text-primary)]">412%</span></div>
+        <div>Hold <span class="text-[var(--text-primary)]">4h 12m</span></div>
+        <div>Strategy <span class="text-[var(--text-primary)]">Coherence Trend</span></div>
+      </div>
+      <div class="mt-3 pt-3 border-t hairline flex items-center justify-between text-[11px]">
+        <span class="text-[var(--text-muted)]">Win Rate (7D)</span><span class="mono">58.1%</span>
+      </div>
+      ${gauge(58,'var(--positive)')}
+    </div>
+
+    <div class="card p-3">
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-[11px] text-[var(--text-muted)] uppercase">ETHUSDT · 5m</span>
+        <span class="mono text-[13px]" style="color:var(--positive)">$3,421.55 ▲</span>
+      </div>
+      ${candles(4)}
+    </div>
+  </div>
+
+  <div class="card p-4 mb-3">
+    <div class="flex items-center justify-between mb-3">
+      <span class="text-[11px] text-[var(--text-muted)] uppercase">Execution Cycle · #2487</span>
+      <span class="mono text-[11px] text-[var(--text-secondary)]">Fill 1.07s</span>
+    </div>
+    ${execCycle(4)}
+  </div>
+
+  <div class="card p-4 swarm-box">
+    <div class="flex items-center justify-between mb-2">
+      <span class="text-[11px] text-[var(--text-muted)] uppercase">Agent Swarm · 300 sub-agents · live</span>
+      <span class="badge" style="background:color-mix(in srgb, var(--accent) 18%, transparent); color:var(--accent)">● Live</span>
+    </div>
+    <div class="relative">
+      <div class="swarm-corner top-1 left-1 mono text-[var(--text-secondary)] space-y-0.5">
+        ${MOCK.markets.map(m=>`<div>${m.sym.replace('USDT','')} ${m.price<1?fmt(m.price,4):fmt(m.price,0)} <span style="color:${m.chg>=0?'var(--positive)':'var(--negative)'}">${m.chg>=0?'▲':'▼'}${Math.abs(m.chg)}%</span></div>`).join('')}
+      </div>
+      <div class="swarm-corner top-1 right-1 mono text-[var(--text-secondary)] text-right space-y-0.5">
+        <div>Agents <span class="text-[var(--text-primary)]">300</span></div>
+        <div>Throughput <span class="text-[var(--text-primary)]">44/s</span></div>
+        <div>Latency <span class="text-[var(--text-primary)]">56ms</span></div>
+      </div>
+      ${swarmSVG(1100,320)}
+      <div class="swarm-corner bottom-1 right-1 card-2 rounded p-2 mono text-[10.5px] text-right">
+        <div class="text-[var(--text-muted)] uppercase mb-1">Risk Model</div>
+        <div>VaR <span style="color:var(--negative)">-8.7%</span></div>
+        <div>CVaR <span style="color:var(--negative)">-11.2%</span></div>
+        <div>Sharpe <span style="color:var(--positive)">2.14</span></div>
+      </div>
+    </div>
+    <div class="text-[11px] text-[var(--text-muted)] mt-2">Node positions/connections are illustrative of swarm activity — bind opacity/active-edge state to real per-agent signal events from the backend.</div>
+  </div>
+`;
+
+PAGES.dashboard = () => `
+  <div class="grid grid-cols-4 gap-3 mb-3">
+    ${statCard('Equity','$994,953.00')}
+    ${statCard('Available Balance','$846,120.00')}
+    ${statCard("Today's P&L",'+$1,820.44',true)}
+    ${statCard('Total P&L','+$182,340.11',true)}
+    ${statCard('Win Rate','58.1%')}
+    ${statCard('Profit Factor','1.62')}
+    ${statCard('Max Drawdown','-5.4%',false,true)}
+    ${statCard('Open Exposure','34% of max')}
+  </div>
+  <div class="grid grid-cols-3 gap-3 mb-3">
+    ${MOCK.markets.map(m=>marketCard(m)).join('')}
+  </div>
+  <div class="grid grid-cols-3 gap-3">
+    <div class="card p-3 col-span-2">
+      <div class="flex items-center justify-between mb-3">
+        <div class="font-semibold text-[12.5px] text-[var(--text-secondary)] uppercase tracking-wide">Agent Status — how it's working right now</div>
+        <div class="flex gap-1.5">
+          <button class="btn-live" onclick="openLiveInspector('ETHUSDT','Coherence Trend Following')"><span class="live-dot" style="width:5px;height:5px"></span>Watch Live</button>
+          <button class="chip" onclick="navigate('agent')">Open Agent Brain →</button>
+        </div>
+      </div>
+      <div class="grid grid-cols-3 gap-3 mono text-[12.5px] mb-3">
+        <div><div class="text-[var(--text-muted)] text-[11px] mb-1">Current Node</div><div>strategy_router</div></div>
+        <div><div class="text-[var(--text-muted)] text-[11px] mb-1">Current Asset</div><div>ETHUSDT</div></div>
+        <div><div class="text-[var(--text-muted)] text-[11px] mb-1">Current Strategy</div><div>Coherence Trend</div></div>
+        <div><div class="text-[var(--text-muted)] text-[11px] mb-1">Current Decision</div><div style="color:var(--positive)">OPEN LONG</div></div>
+        <div><div class="text-[var(--text-muted)] text-[11px] mb-1">Confidence</div><div>71%</div></div>
+        <div><div class="text-[var(--text-muted)] text-[11px] mb-1">Risk State</div><div style="color:var(--positive)">Normal</div></div>
+      </div>
+      ${flowDiagram(MOCK.agentNodes)}
+      <div class="text-[11px] text-[var(--text-muted)] mt-2">Last update: 2s ago</div>
+    </div>
+    <div class="card p-3">
+      <div class="font-semibold mb-3 text-[12.5px] text-[var(--text-secondary)] uppercase tracking-wide">Recent Events</div>
+      <div class="space-y-2 text-[12px]">
+        ${MOCK.logs.slice(0,5).map(l=>`<div class="flex justify-between gap-2"><span class="text-[var(--text-muted)] mono">${l.ts}</span><span class="truncate flex-1">${l.msg}</span></div>`).join('')}
+      </div>
+    </div>
+  </div>
+  <div class="card p-3 mt-3">
+    <div class="flex items-center justify-between mb-3">
+      <div class="font-semibold text-[12.5px] text-[var(--text-secondary)] uppercase tracking-wide">🔮 Polymarket Pulse</div>
+      <button class="chip" onclick="navigate('polymarket')">All Polymarket Signals →</button>
+    </div>
+    <div class="grid grid-cols-4 gap-3">
+      ${MOCK.polymarket.slice().sort((a,b)=>b.relevance-a.relevance).slice(0,4).map(m=>pmCard(m,true)).join('')}
+    </div>
+  </div>
+`;
+function statCard(label,val,positive,negative){
+  const color = positive?'style="color:var(--positive)"':(negative?'style="color:var(--negative)"':'');
+  return `<div class="card p-3"><div class="text-[11px] text-[var(--text-muted)] uppercase tracking-wide mb-1">${label}</div><div class="mono font-semibold text-[16px]" ${color}>${val}</div></div>`;
+}
+function marketCard(m){
+  const up = m.chg>=0;
+  return `<div class="card p-3">
+    <div class="flex justify-between items-start mb-1">
+      <div><div class="font-semibold">${m.sym}</div><div class="mono text-[15px]">$${fmt(m.price, m.price<1?4:2)}</div></div>
+      <div class="text-right">
+        <div class="mono" style="color:${up?'var(--positive)':'var(--negative)'}">${up?'▲':'▼'} ${Math.abs(m.chg)}%</div>
+        ${sparkline(m.sym.length, 90, 28, up?'var(--positive)':'var(--negative)')}
+      </div>
+    </div>
+    <div class="grid grid-cols-3 gap-1 text-[11px] text-[var(--text-secondary)] mono mt-2">
+      <div>Mom <span class="text-[var(--text-primary)]">${m.momentum}</span></div>
+      <div>Vol <span class="text-[var(--text-primary)]">${(m.vol*100).toFixed(1)}%</span></div>
+      <div>Fund <span class="text-[var(--text-primary)]">${(m.funding*100).toFixed(2)}%</span></div>
+    </div>
+    <div class="flex justify-between items-center mt-2 pt-2 border-t hairline">
+      ${badge(m.agent)}
+      <span class="mono text-[11px] text-[var(--text-secondary)]">Conf ${m.conf}%</span>
+    </div>
+  </div>`;
+}
+
+PAGES.markets = () => `
+  <div class="flex items-center gap-2 mb-3">
+    ${MOCK.markets.map((m,i)=>`<button class="chip ${i===0?'on':''}" onclick="selectAsset(this)">${m.sym}</button>`).join('')}
+    <div class="flex-1"></div>
+    ${['1m','5m','15m','1h','4h','1d'].map((t,i)=>`<button class="chip ${i===2?'on':''}" onclick="selectTf(this)">${t}</button>`).join('')}
+  </div>
+  <div class="grid grid-cols-4 gap-3">
+    <div class="card p-3 col-span-3">
+      <div class="flex justify-between items-center mb-2">
+        <div class="mono text-[15px] font-semibold">ETHUSDT <span style="color:var(--positive)">$3,421.55 ▲2.14%</span></div>
+        <div class="flex gap-1.5">
+          ${['EMA','RSI','VWAP','BB'].map((i,idx)=>`<button class="chip ${idx<2?'on':''}" onclick="this.classList.toggle('on')">${i}</button>`).join('')}
+        </div>
+      </div>
+      ${candles(2)}
+      <div class="text-[11px] text-[var(--text-muted)] mt-2">Indicators computed from backend market-data contract. Agent signal markers overlay when provided by /agent/signals.</div>
+    </div>
+    <div class="space-y-3">
+      <div class="card p-3">
+        <div class="text-[11px] text-[var(--text-muted)] uppercase mb-2">Market Stats</div>
+        <div class="mono text-[12px] space-y-1.5">
+          <div class="flex justify-between"><span class="text-[var(--text-secondary)]">Funding</span><span>0.0041%</span></div>
+          <div class="flex justify-between"><span class="text-[var(--text-secondary)]">Open Interest</span><span>$812.4M</span></div>
+          <div class="flex justify-between"><span class="text-[var(--text-secondary)]">24h Volume</span><span>$1.42B</span></div>
+          <div class="flex justify-between"><span class="text-[var(--text-secondary)]">Liquidations (1h)</span><span>Not available</span></div>
+        </div>
+      </div>
+      <div class="card p-3">
+        <div class="text-[11px] text-[var(--text-muted)] uppercase mb-2">Agent Signal</div>
+        <div class="flex items-center gap-2 mb-2">${badge('RUNNING')}<span class="mono text-[12px]">Conf 71%</span></div>
+        <div class="text-[12px] text-[var(--text-secondary)]">Trend-following entry conditions met; awaiting risk approval node.</div>
+      </div>
+    </div>
+  </div>
+`;
+
+PAGES.intel = () => `
+  <div class="card p-4">
+    <div class="font-semibold mb-3">Market Intelligence</div>
+    <p class="text-[var(--text-secondary)] text-[12.5px] mb-3">Aggregated regime, correlation, and macro-context view across tracked assets. Wire to backend's market-intelligence / regime-classification endpoint.</p>
+    <div class="grid grid-cols-3 gap-3">
+      ${MOCK.markets.map(m=>`<div class="card-2 p-3 rounded"><div class="font-medium mb-1">${m.sym}</div><div class="text-[12px] text-[var(--text-secondary)]">Regime: <span class="text-[var(--text-primary)]">${m.trend==='Up'?'Trend-Up':'Trend-Down'}</span></div><div class="text-[12px] text-[var(--text-secondary)]">Correlation to BTC: <span class="text-[var(--text-primary)]">0.7${m.sym.length%3}</span></div></div>`).join('')}
+    </div>
+  </div>
+`;
+
+/* ============================================================
+   POLYMARKET SIGNALS — prediction-market data the agent reads
+   ============================================================ */
+function pmCard(m, compact){
+  const yesPct = Math.round(m.yes*100), noPct = 100-yesPct;
+  return `<div class="card${compact?'-2':''} rounded p-3">
+    <div class="flex items-start justify-between gap-2 mb-2">
+      <div class="text-[12.5px] leading-snug pr-2">${m.q}</div>
+      <span class="badge shrink-0" style="background:color-mix(in srgb, var(--accent) 16%, transparent); color:var(--accent)">${m.cat}</span>
+    </div>
+    <div class="flex items-center gap-2 mb-1.5">
+      <div class="flex-1 h-2 rounded-full overflow-hidden flex" style="background:var(--bg-surface-2)">
+        <div style="width:${yesPct}%; background:var(--positive)"></div>
+        <div style="width:${noPct}%; background:var(--negative)"></div>
+      </div>
+    </div>
+    <div class="flex justify-between text-[11px] mono mb-2">
+      <span style="color:var(--positive)">YES ${yesPct}%</span>
+      <span style="color:var(--negative)">NO ${noPct}%</span>
+    </div>
+    <div class="flex justify-between text-[10.5px] text-[var(--text-muted)] mono">
+      <span>Vol ${m.vol}</span>
+      <span style="color:${m.chg>=0?'var(--positive)':'var(--negative)'}">${m.chg>=0?'▲':'▼'}${Math.abs(m.chg)}% 24h</span>
+      <span>Closes ${m.closes}</span>
+    </div>
+    ${compact===undefined?`<div class="mt-2 pt-2 border-t hairline flex justify-between items-center">
+      <span class="text-[10.5px] text-[var(--text-muted)] uppercase">Agent Relevance</span>
+      <span class="mono text-[11px]">${Math.round(m.relevance*100)}%</span>
+    </div>${gauge(m.relevance*100,'var(--accent)')}`:''}
+  </div>`;
+}
+PAGES.polymarket = () => {
+  const totalVol = MOCK.polymarket.reduce((s,m)=>s+parseFloat(m.vol.replace(/[$M K]/g,'')) * (m.vol.includes('M')?1:0.001), 0);
+  return `
+  <div class="grid grid-cols-4 gap-3 mb-3">
+    ${statCard('Markets Tracked', MOCK.polymarket.length)}
+    ${statCard('Total Volume Tracked', '$' + totalVol.toFixed(1) + 'M')}
+    ${statCard('Avg Agent Relevance', Math.round(MOCK.polymarket.reduce((s,m)=>s+m.relevance,0)/MOCK.polymarket.length*100)+'%')}
+    ${statCard('Highest Conviction', MOCK.polymarket.slice().sort((a,b)=>Math.abs(b.yes-0.5)-Math.abs(a.yes-0.5))[0].cat)}
+  </div>
+  <div class="text-[11px] text-[var(--text-muted)] mb-3">Prediction-market odds pulled from Polymarket and cross-referenced by the agent's research node alongside news and price action. Sorted by relevance to current strategy context.</div>
+  <div class="grid grid-cols-3 gap-3">
+    ${MOCK.polymarket.slice().sort((a,b)=>b.relevance-a.relevance).map(m=>pmCard(m)).join('')}
+  </div>
+  `;
+};
+
+PAGES.positions = () => `
+  <div class="card overflow-hidden">
+    <table class="term w-full">
+      <thead><tr><th>Asset</th><th>Side</th><th class="num">Size</th><th class="num">Entry</th><th class="num">Mark</th><th>Lev</th><th class="num">SL</th><th class="num">TP</th><th class="num">Unrealized P&L</th><th class="num">ROE</th><th>Strategy</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+      ${MOCK.positions.map((p,i)=>`<tr class="cursor-pointer mono" onclick="openPositionDetail(${i})">
+        <td class="font-medium">${p.asset}</td>
+        <td style="color:${p.side==='Long'?'var(--positive)':'var(--negative)'}">${p.side}</td>
+        <td class="num">${p.size}</td>
+        <td class="num">${fmt(p.entry, p.entry<1?4:2)}</td>
+        <td class="num">${fmt(p.mark, p.mark<1?4:2)}</td>
+        <td>${p.lev}</td>
+        <td class="num">${fmt(p.sl, p.sl<1?4:2)}</td>
+        <td class="num">${fmt(p.tp, p.tp<1?4:2)}</td>
+        <td class="num" ${pnlClass(p.pnl)}>${p.pnl>=0?'+':''}$${fmt(p.pnl)}</td>
+        <td class="num" ${pnlClass(p.pnl)}>${p.roe}</td>
+        <td class="text-[var(--text-secondary)]">${p.strategy}</td>
+        <td>${badge(p.status)}</td>
+        <td class="flex gap-1.5">
+          <button class="btn-live" onclick="event.stopPropagation();openLiveInspector('${p.asset}','${p.strategy}')"><span class="live-dot" style="width:5px;height:5px"></span>Live</button>
+          <button class="chip" style="border-color:var(--accent);color:var(--accent)" onclick="event.stopPropagation();showPositionJourney(${i})">◎ How</button>
+          <button class="chip" onclick="event.stopPropagation();confirmAction('Close ${p.asset} position?','This will submit a market order to flatten the position.')">Close</button>
+        </td>
+      </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>
+  <div id="position-detail" class="mt-3"></div>
+`;
+function openPositionDetail(i){
+  const p = MOCK.positions[i];
+  document.getElementById('position-detail').innerHTML = `
+  <div class="card p-4">
+    <div class="flex justify-between items-center mb-3">
+      <div class="font-semibold">${p.asset} — Position Detail</div>
+      <button class="chip" onclick="document.getElementById('position-detail').innerHTML=''">Close</button>
+    </div>
+    <div class="grid grid-cols-4 gap-3 mono text-[12.5px]">
+      ${['Entry '+fmt(p.entry,4),'Mark '+fmt(p.mark,4),'Margin $'+fmt(p.size*p.entry/10,2),'Liq. Price '+fmt(p.entry*0.82,4),
+         'Stop '+fmt(p.sl,4),'Target '+fmt(p.tp,4),'P&L $'+fmt(p.pnl),'ROE '+p.roe,
+         'Trend Bullish','Momentum 0.62','Volatility 3.1%','Exit Risk Low'].map(t=>{
+        const [l,...v]=t.split(' '); return `<div class="card-2 p-2 rounded"><div class="text-[10.5px] text-[var(--text-muted)] uppercase">${l}</div><div>${v.join(' ')}</div></div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+PAGES.orders = () => `
+  <div class="card overflow-hidden">
+    <table class="term w-full">
+      <thead><tr><th>Order ID</th><th>Asset</th><th>Side</th><th>Type</th><th class="num">Qty</th><th class="num">Price</th><th>Status</th><th>Created</th><th>Filled</th><th class="num">Avg Fill</th><th class="num">Slippage</th><th class="num">Latency</th></tr></thead>
+      <tbody>
+      ${MOCK.orders.map(o=>`<tr class="mono">
+        <td>${o.id}</td><td class="font-medium">${o.asset}</td>
+        <td style="color:${o.side==='Buy'?'var(--positive)':'var(--negative)'}">${o.side}</td>
+        <td>${o.type}</td><td class="num">${o.qty}</td><td class="num">${fmt(o.price, o.price<1?4:2)}</td>
+        <td>${badge(o.status)}</td><td>${o.created}</td><td>${o.filled}</td>
+        <td class="num">${typeof o.avgFill==='number'?fmt(o.avgFill,o.avgFill<1?4:2):o.avgFill}</td>
+        <td class="num">${o.slippage}</td><td class="num">${o.latency}</td>
+      </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>
+`;
+
+PAGES.history = () => `
+  <div class="card overflow-hidden">
+    <table class="term w-full">
+      <thead><tr><th>Trade ID</th><th>Asset</th><th>Side</th><th class="num">Size</th><th class="num">Entry</th><th class="num">Exit</th><th class="num">P&L</th><th>Strategy</th><th>Closed</th><th></th></tr></thead>
+      <tbody>
+        <tr class="mono"><td>TR-9021</td><td>ETHUSDT</td><td style="color:var(--positive)">Long</td><td class="num">1.8</td><td class="num">3298.00</td><td class="num">3400.00</td><td class="num" style="color:var(--positive)">+$212.40</td><td class="text-[var(--text-secondary)]">Coherence Trend</td><td>Yesterday 22:11</td><td><button class="chip" style="border-color:var(--accent);color:var(--accent)" onclick="showHistoryJourney(0)">◎ How</button></td></tr>
+        <tr class="mono"><td>TR-9008</td><td>DOGEUSDT</td><td style="color:var(--negative)">Short</td><td class="num">41000</td><td class="num">0.2140</td><td class="num">0.2201</td><td class="num" style="color:var(--negative)">-$250.10</td><td class="text-[var(--text-secondary)]">Volatility Breakout</td><td>Yesterday 14:02</td><td><button class="chip" style="border-color:var(--accent);color:var(--accent)" onclick="showHistoryJourney(1)">◎ How</button></td></tr>
+        <tr class="mono"><td>TR-8994</td><td>SOLUSDT</td><td style="color:var(--positive)">Long</td><td class="num">120</td><td class="num">182.10</td><td class="num">188.40</td><td class="num" style="color:var(--positive)">+$756.00</td><td class="text-[var(--text-secondary)]">Signal Flip Momentum</td><td>2 days ago</td><td><button class="chip" style="border-color:var(--accent);color:var(--accent)" onclick="showHistoryJourney(2)">◎ How</button></td></tr>
+      </tbody>
+    </table>
+  </div>
+`;
+
+PAGES.execution = () => `
+  <div class="card p-4 mb-3">
+    <div class="font-semibold mb-3 text-[12.5px] text-[var(--text-secondary)] uppercase tracking-wide">Execution Pipeline</div>
+    <div class="flex items-center overflow-x-auto">
+      ${MOCK.execFlow.map((s,i)=>`<div class="flex items-center shrink-0">
+        <div class="card-2 rounded px-3 py-2 text-[12px] whitespace-nowrap">${s}</div>
+        ${i<MOCK.execFlow.length-1?'<div class="w-6 h-px" style="background:var(--border-strong)"></div>':''}
+      </div>`).join('')}
+    </div>
+    <div class="grid grid-cols-4 gap-3 mt-4 mono text-[12.5px]">
+      ${statCard('Avg Latency','118ms')}
+      ${statCard('Avg Slippage','0.02bps')}
+      ${statCard('Fill Ratio','98.4%')}
+      ${statCard('Rejected (24h)','1')}
+    </div>
+  </div>
+  <div class="card overflow-hidden">
+    <table class="term w-full">
+      <thead><tr><th>Order</th><th>Asset</th><th>Stage</th><th class="num">Latency</th><th class="num">Slippage</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr class="mono"><td>ORD-88213</td><td>ETHUSDT</td><td>Fill → Position Update</td><td class="num">118ms</td><td class="num">0.02bps</td><td>${badge('FILLED')}</td></tr>
+        <tr class="mono"><td>ORD-88190</td><td>DOGEUSDT</td><td>Risk Approval → Rejected</td><td class="num">201ms</td><td class="num">—</td><td>${badge('REJECTED')}</td></tr>
+        <tr class="mono"><td>ORD-88208</td><td>SOLUSDT</td><td>Fill → Position Update</td><td class="num">94ms</td><td class="num">0.01bps</td><td>${badge('FILLED')}</td></tr>
+      </tbody>
+    </table>
+  </div>
+`;
+
+PAGES.agent = () => `
+  <div class="card p-4 mb-3">
+    <div class="flex items-center justify-between mb-3">
+      <div class="font-semibold text-[12.5px] text-[var(--text-secondary)] uppercase tracking-wide">Live LangGraph Execution — how the agent is deciding right now</div>
+      <div class="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]"><span class="dot pulse" style="background:var(--accent)"></span>updating every cycle</div>
+    </div>
+    ${flowDiagram(MOCK.agentNodes)}
+    <div class="text-[11px] text-[var(--text-muted)] mt-2">Nodes and edges reflect the backend's actual graph shape — do not hardcode if it exposes nodes dynamically. Flowing dot = active edge; solid green edge = completed path this cycle.</div>
+  </div>
+  <div class="grid grid-cols-3 gap-3">
+    <div class="card p-3 col-span-1">
+      <div class="text-[11px] text-[var(--text-muted)] uppercase mb-3">Node Detail</div>
+      <div class="space-y-2">
+      ${MOCK.agentNodes.map(n=>`<div class="card-2 rounded p-2.5">
+        <div class="flex justify-between items-center mb-1">
+          <span class="mono text-[12px]">${n.name}</span>${badge(n.status)}
+        </div>
+        <div class="flex justify-between text-[11px] text-[var(--text-secondary)]">
+          <span>${n.out}</span><span class="mono">${n.dur}</span>
+        </div>
+      </div>`).join('')}
+      </div>
+    </div>
+    <div class="card p-4">
+      <div class="text-[11px] text-[var(--text-muted)] uppercase mb-3">Ensemble Confidence</div>
+      <div class="flex flex-col items-center justify-center py-2">
+        <svg width="130" height="130" viewBox="0 0 130 130">
+          <circle cx="65" cy="65" r="54" fill="none" stroke="var(--bg-surface-2)" stroke-width="10"/>
+          <circle cx="65" cy="65" r="54" fill="none" stroke="var(--accent)" stroke-width="10" stroke-linecap="round"
+            stroke-dasharray="${2*Math.PI*54}" stroke-dashoffset="${2*Math.PI*54*(1-0.71)}" transform="rotate(-90 65 65)"/>
+          <text x="65" y="60" text-anchor="middle" fill="var(--text-primary)" font-size="22" font-weight="700" font-family="monospace">71%</text>
+          <text x="65" y="78" text-anchor="middle" fill="var(--text-muted)" font-size="10">HOLD signal</text>
+        </svg>
+      </div>
+      <div class="text-[11px] text-[var(--text-secondary)] text-center">Coherence 0.61 · Quantum 0.58 · Pattern 0.73 · Temporal 0.44</div>
+      <div class="mt-4 space-y-2">
+        <div class="text-[11px] text-[var(--text-muted)] uppercase">Action Probabilities</div>
+        ${['Buy','Hold','Sell'].map((a,i)=>{const v=[21,72,7][i]; const c=[ 'var(--positive)','var(--warning)','var(--negative)'][i];
+          return `<div><div class="flex justify-between text-[11px] mb-0.5"><span>${a}</span><span class="mono">${v}%</span></div>${gauge(v,c)}</div>`}).join('')}
+      </div>
+    </div>
+    <div class="card p-3">
+      <div class="text-[11px] text-[var(--text-muted)] uppercase mb-3">Model Predictions</div>
+      <div class="space-y-2">
+        ${[['Decision Engine',37,'HOLD','Conservative strategy — current assessment favors caution'],
+           ['Signal Engine',48,'HOLD','4 models neutral'],
+           ['Quantum Engine',51,'BUY','Quantum simulation favors buy (coherence 0.90)'],
+           ['Pattern Engine',73,'HOLD','Forecast aligns with hold signal from chart structure']]
+          .map(([name,conf,act,note])=>`<div class="card-2 rounded p-2.5">
+            <div class="flex justify-between items-center mb-1"><span class="text-[12px] font-medium">${name}</span>
+              <span class="badge" style="background:color-mix(in srgb, ${act==='BUY'?'var(--positive)':'var(--warning)'} 18%, transparent);color:${act==='BUY'?'var(--positive)':'var(--warning)'}">${act} · ${conf}%</span></div>
+            <div class="text-[11px] text-[var(--text-secondary)]">${note}</div>
+          </div>`).join('')}
+      </div>
+    </div>
+  </div>
+`;
+
+PAGES.decisions = () => `
+  <div class="card overflow-hidden mb-3">
+    <table class="term w-full">
+      <thead><tr><th>Time</th><th>Asset</th><th>Decision</th><th>Strategy</th><th class="num">Confidence</th><th>Risk</th><th class="num">Entry</th><th class="num">Stop</th><th class="num">Target</th><th>Result</th></tr></thead>
+      <tbody>
+      ${MOCK.decisions.map((d,i)=>`<tr class="mono cursor-pointer" onclick="openDecision(${i})">
+        <td>${d.ts}</td><td class="font-medium">${d.asset}</td>
+        <td style="color:${d.decision.includes('LONG')||d.decision==='HOLD'?'var(--positive)':(d.decision.includes('SHORT')?'var(--negative)':'var(--text-secondary)')}">${d.decision}</td>
+        <td class="text-[var(--text-secondary)]">${d.strategy}</td>
+        <td class="num">${d.conf}%</td><td>${badge(d.risk)}</td>
+        <td class="num">${typeof d.entry==='number'?fmt(d.entry, d.entry<1?4:2):d.entry}</td>
+        <td class="num">${typeof d.stop==='number'?fmt(d.stop, d.stop<1?4:2):d.stop}</td>
+        <td class="num">${typeof d.target==='number'?fmt(d.target, d.target<1?4:2):d.target}</td>
+        <td class="${d.result.startsWith('+')?'':(d.result.startsWith('-')?'':'')}" ${d.result.startsWith('+')?'style="color:var(--positive)"':''}>${d.result}</td>
+      </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>
+  <div id="decision-inspector"></div>
+`;
+function openDecision(i){
+  const d = MOCK.decisions[i]; const det = MOCK.decisionDetail;
+  document.getElementById('decision-inspector').innerHTML = `
+  <div class="card p-4">
+    <div class="flex justify-between items-center mb-3">
+      <div class="font-semibold">Decision Inspector — ${d.id} · ${d.asset}</div>
+      <button class="chip" onclick="document.getElementById('decision-inspector').innerHTML=''">Close</button>
+    </div>
+    <p class="text-[12.5px] text-[var(--text-secondary)] mb-3">${d.decision} recommended by <b class="text-[var(--text-primary)]">${d.strategy}</b> at ${d.conf}% confidence. Structured factors below — no internal reasoning trace is exposed.</p>
+    <div class="mb-4">
+      <div class="text-[11px] text-[var(--text-muted)] uppercase mb-2">How this trade worked — end to end</div>
+      ${tradeJourney(d)}
+    </div>
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <div class="text-[11px] text-[var(--text-muted)] uppercase mb-2">Signal Factors</div>
+        <div class="space-y-1.5">${det.signals.map(s=>`<div class="flex justify-between items-center card-2 rounded px-2.5 py-1.5"><span class="text-[12px]">${s.label}</span><span class="mono text-[12px] text-[var(--text-secondary)]">${s.val}</span>${badge(s.state)}</div>`).join('')}</div>
+      </div>
+      <div>
+        <div class="text-[11px] text-[var(--text-muted)] uppercase mb-2">Risk Checks</div>
+        <div class="space-y-1.5">${det.risk.map(s=>`<div class="flex justify-between items-center card-2 rounded px-2.5 py-1.5"><span class="text-[12px]">${s.label}</span><span class="mono text-[12px] text-[var(--text-secondary)]">${s.val}</span>${badge(s.state)}</div>`).join('')}</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+PAGES.timeline = () => `
+  <div class="flex items-center gap-2 mb-3">
+    ${['market','analysis','strategy','risk','decision','execution','learning','error'].map((c,i)=>`<button class="chip ${i<3?'on':''}" onclick="this.classList.toggle('on')">${c}</button>`).join('')}
+    <div class="flex-1"></div>
+    <button class="chip" onclick="this.classList.toggle('on')">⏸ Pause autoscroll</button>
+  </div>
+  <div class="card p-3 space-y-2 mono text-[12px]">
+    ${[
+      ['09:14:03','execution','ETHUSDT','Order ORD-88214 placed (limit, TP)'],
+      ['09:14:02','execution','ETHUSDT','Order ORD-88213 filled at 3355.12'],
+      ['09:14:01','decision','ETHUSDT','Decision DEC-4471 → OPEN LONG (conf 71%)'],
+      ['09:13:58','risk','ETHUSDT','Risk approval PASS — all 7 checks green'],
+      ['09:13:44','strategy','ETHUSDT','Coherence Trend Following crossed execution threshold'],
+      ['09:13:20','analysis','ETHUSDT','Regime reclassified: Trend-Up (0.61)'],
+      ['09:12:55','risk','DOGEUSDT','Volatility check WARN — proceeding with reduced size'],
+      ['08:41:12','error','—','Exchange REST timeout on GET /v1/account (retried, succeeded)'],
+    ].map(([t,cat,asset,msg])=>`<div class="flex items-center gap-3 py-1 border-b hairline last:border-0 ${asset!=='—'?'cursor-pointer hover:bg-[var(--bg-surface-2)] rounded px-1':''}" ${asset!=='—'?`onclick="openLiveInspector('${asset}','Live monitoring')"`:''}>
+      <span class="text-[var(--text-muted)] w-16 shrink-0">${t}</span>
+      <span class="w-20 shrink-0" style="color:${cat==='error'?'var(--negative)':'var(--text-secondary)'}">${cat}</span>
+      <span class="w-20 shrink-0 text-[var(--text-secondary)]">${asset}</span>
+      <span class="flex-1">${msg}</span>
+      ${asset!=='—'?'<span class="btn-live shrink-0"><span class="live-dot" style="width:5px;height:5px"></span>Live</span>':''}
+    </div>`).join('')}
+  </div>
+`;
+
+PAGES.strategies = () => `
+  <div class="grid grid-cols-3 gap-3">
+  ${MOCK.strategies.map(s=>`<div class="card p-3">
+    <div class="flex justify-between items-start mb-2"><span class="font-medium text-[13px]">${s.name}</span>${badge(s.status)}</div>
+    <div class="grid grid-cols-2 gap-y-1 gap-x-3 mono text-[11.5px] text-[var(--text-secondary)]">
+      <div>Trades <span class="text-[var(--text-primary)]">${s.trades}</span></div>
+      <div>Win Rate <span class="text-[var(--text-primary)]">${s.winRate}</span></div>
+      <div>Profit Factor <span class="text-[var(--text-primary)]">${s.pf}</span></div>
+      <div>Avg R <span class="text-[var(--text-primary)]">${s.avgR}</span></div>
+      <div>Avg Return <span class="text-[var(--text-primary)]">${s.avgRet}</span></div>
+      <div>Max DD <span class="text-[var(--text-primary)]">${s.maxDD}</span></div>
+    </div>
+    <div class="text-[11px] text-[var(--text-muted)] mt-2 pt-2 border-t hairline">Suitability: ${s.suitability}</div>
+  </div>`).join('')}
+  </div>
+`;
+
+PAGES['strategy-perf'] = () => `
+  <div class="grid grid-cols-2 gap-3">
+    <div class="card p-3"><div class="text-[11px] text-[var(--text-muted)] uppercase mb-2">Equity Curve</div>${candles(3)}</div>
+    <div class="card p-3"><div class="text-[11px] text-[var(--text-muted)] uppercase mb-2">Drawdown</div>${candles(5)}</div>
+    <div class="card p-3">
+      <div class="text-[11px] text-[var(--text-muted)] uppercase mb-2">P&L by Asset</div>
+      <div class="space-y-2">${MOCK.markets.map((m,i)=>{const v=[62,41,74][i];return `<div><div class="flex justify-between text-[11px] mb-0.5"><span>${m.sym}</span><span class="mono">+${v/10}%</span></div>${gauge(v,'var(--positive)')}</div>`}).join('')}</div>
+    </div>
+    <div class="card p-3">
+      <div class="text-[11px] text-[var(--text-muted)] uppercase mb-2">P&L by Market Regime</div>
+      <div class="space-y-2">${[['Trend-Up',78],['Trend-Down',35],['Ranging',22]].map(([l,v])=>`<div><div class="flex justify-between text-[11px] mb-0.5"><span>${l}</span><span class="mono">${v}%</span></div>${gauge(v, v>50?'var(--positive)':'var(--warning)')}</div>`).join('')}</div>
+    </div>
+  </div>
+`;
+
+PAGES.risk = () => `
+  <div class="grid grid-cols-4 gap-3 mb-3">
+    ${statCard('Equity','$'+fmt(MOCK.risk.equity,0))}
+    ${statCard('Available Balance','$'+fmt(MOCK.risk.avail,0))}
+    ${statCard('Margin Used','$'+fmt(MOCK.risk.margin,0))}
+    ${statCard('Exposure',MOCK.risk.exposure)}
+    ${statCard('Avg Leverage',MOCK.risk.leverage)}
+    ${statCard('Risk / Trade',MOCK.risk.riskPerTrade)}
+    ${statCard('Daily Loss',MOCK.risk.dailyLoss)}
+    ${statCard('Drawdown',MOCK.risk.drawdown)}
+  </div>
+  <div class="card p-4">
+    <div class="text-[11px] text-[var(--text-muted)] uppercase mb-3">Risk Checks</div>
+    <div class="grid grid-cols-2 gap-3">
+    ${MOCK.risk.checks.map(c=>`<div>
+      <div class="flex justify-between text-[12px] mb-1"><span>${c.label}</span>${badge(c.state)}</div>
+      ${gauge(c.pct, c.state==='PASS'?'var(--positive)':(c.state==='WARN'?'var(--warning)':'var(--negative)'))}
+    </div>`).join('')}
+    </div>
+  </div>
+`;
+
+PAGES.exposure = () => `
+  <div class="card overflow-hidden">
+    <table class="term w-full">
+      <thead><tr><th>Asset</th><th class="num">Notional</th><th class="num">% of Equity</th><th class="num">Leverage</th><th class="num">Liq. Distance</th></tr></thead>
+      <tbody>
+      ${MOCK.positions.map(p=>`<tr class="mono"><td>${p.asset}</td><td class="num">$${fmt(p.size*p.mark,0)}</td><td class="num">${((p.size*p.mark)/MOCK.risk.equity*100).toFixed(1)}%</td><td class="num">${p.lev}</td><td class="num">18.2%</td></tr>`).join('')}
+      </tbody>
+    </table>
+  </div>
+`;
+
+PAGES.learning = () => `
+  <div class="grid grid-cols-3 gap-3 mb-3">
+    ${statCard('Trades Analyzed',MOCK.learning.analyzed)}
+    ${statCard('Wins',MOCK.learning.wins,true)}
+    ${statCard('Losses',MOCK.learning.losses,false,true)}
+    ${statCard('Patterns Found',MOCK.learning.patterns)}
+    ${statCard('Adjustments',MOCK.learning.adjustments)}
+    ${statCard('Last Learning Run',MOCK.learning.last)}
+  </div>
+  <div class="card p-4">
+    <div class="text-[11px] text-[var(--text-muted)] uppercase mb-2">Learning Cycles</div>
+    ${candles(7)}
+  </div>
+`;
+
+PAGES.failures = () => `
+  <div class="grid grid-cols-3 gap-3">
+    ${MOCK.learning.failures.map(f=>`<div class="card p-3">
+      <div class="font-medium text-[12.5px] mb-2">${f.group}</div>
+      <div class="mono text-[12px] text-[var(--text-secondary)] flex justify-between"><span>Failures</span><span class="text-[var(--text-primary)]">${f.count}</span></div>
+      <div class="mono text-[12px] text-[var(--text-secondary)] flex justify-between"><span>Avg Loss</span><span style="color:var(--negative)">${f.avgLoss}</span></div>
+    </div>`).join('')}
+  </div>
+`;
+
+PAGES.trades = () => `
+  <div class="card overflow-hidden">
+    <table class="term w-full">
+      <thead><tr><th>Trade</th><th>Asset</th><th>Strategy</th><th class="num">P&L</th><th>Regime</th><th>Signal Quality</th></tr></thead>
+      <tbody>
+        <tr class="mono"><td>TR-9021</td><td>ETHUSDT</td><td class="text-[var(--text-secondary)]">Coherence Trend</td><td class="num" style="color:var(--positive)">+$212.40</td><td>Trend-Up</td><td>${badge('PASS')}</td></tr>
+        <tr class="mono"><td>TR-9008</td><td>DOGEUSDT</td><td class="text-[var(--text-secondary)]">Volatility Breakout</td><td class="num" style="color:var(--negative)">-$250.10</td><td>Ranging</td><td>${badge('WARN')}</td></tr>
+        <tr class="mono"><td>TR-8994</td><td>SOLUSDT</td><td class="text-[var(--text-secondary)]">Signal Flip Momentum</td><td class="num" style="color:var(--positive)">+$756.00</td><td>Trend-Up</td><td>${badge('PASS')}</td></tr>
+      </tbody>
+    </table>
+  </div>
+`;
+
+let replayPlaying=false, replayIdx=2;
+PAGES.replay = () => `
+  <div class="card p-4 mb-3">
+    <div class="flex items-center justify-between mb-3">
+      <div class="font-semibold">Replay: DEC-4471 · ETHUSDT · 09:14:01</div>
+      <div class="flex items-center gap-1.5">
+        <button class="chip" onclick="replayStep(-1)">⏮ Prev</button>
+        <button id="replay-play" class="chip" onclick="replayToggle()">▶ Play</button>
+        <button class="chip" onclick="replayStep(1)">Next ⏭</button>
+        ${['0.5x','1x','2x','5x'].map((s,i)=>`<button class="chip ${i===1?'on':''}" onclick="selectSpeed(this)">${s}</button>`).join('')}
+      </div>
+    </div>
+    <div class="gauge-track h-1.5"><div style="width:55%;height:100%;background:var(--accent)"></div></div>
+  </div>
+  <div class="grid grid-cols-3 gap-3">
+    <div class="card p-3"><div class="text-[11px] text-[var(--text-muted)] uppercase mb-2">Market State</div>${candles(9)}</div>
+    <div class="card p-3">
+      <div class="text-[11px] text-[var(--text-muted)] uppercase mb-2">Signals &amp; Risk</div>
+      <div class="space-y-1.5">${MOCK.decisionDetail.signals.slice(0,5).map(s=>`<div class="flex justify-between items-center card-2 rounded px-2.5 py-1.5"><span class="text-[12px]">${s.label}</span><span class="mono text-[11.5px] text-[var(--text-secondary)]">${s.val}</span></div>`).join('')}</div>
+    </div>
+    <div class="card p-3">
+      <div class="text-[11px] text-[var(--text-muted)] uppercase mb-2">Outcome</div>
+      <div class="mono text-[12.5px] space-y-1.5">
+        <div class="flex justify-between"><span class="text-[var(--text-secondary)]">Decision</span><span style="color:var(--positive)">OPEN LONG</span></div>
+        <div class="flex justify-between"><span class="text-[var(--text-secondary)]">Entry</span><span>3355.10</span></div>
+        <div class="flex justify-between"><span class="text-[var(--text-secondary)]">Result so far</span><span style="color:var(--positive)">+$159.48</span></div>
+      </div>
+    </div>
+  </div>
+`;
+function replayToggle(){ replayPlaying=!replayPlaying; document.getElementById('replay-play').textContent = replayPlaying?'⏸ Pause':'▶ Play'; }
+function replayStep(){}
+function selectSpeed(el){ el.parentElement.querySelectorAll('.chip').forEach(c=>c.classList.remove('on')); el.classList.add('on'); }
+
+PAGES.backtest = () => `
+  <div class="grid grid-cols-4 gap-3">
+    <div class="card p-4 col-span-1">
+      <div class="text-[11px] text-[var(--text-muted)] uppercase mb-3">Backtest Configuration</div>
+      <div class="space-y-2.5 text-[12px]">
+        ${field('Asset','ETHUSDT')}
+        ${field('Timeframe','1h')}
+        ${field('Start Date','2025-01-01')}
+        ${field('End Date','2026-08-01')}
+        ${field('Initial Capital','100000')}
+        ${field('Leverage','5x')}
+        ${field('Strategy','Coherence Trend Following')}
+        ${field('Fees (bps)','6')}
+        ${field('Slippage (bps)','2')}
+      </div>
+      <button class="mt-3 w-full py-2 rounded text-[12.5px] font-semibold text-white" style="background:var(--accent)">Run Backtest</button>
+    </div>
+    <div class="col-span-3 space-y-3">
+      <div class="grid grid-cols-4 gap-3">
+        ${statCard('Final Equity','$118,600')}
+        ${statCard('Return','+18.6%',true)}
+        ${statCard('Win Rate','62.3%')}
+        ${statCard('Profit Factor','1.71')}
+        ${statCard('Sharpe','1.52')}
+        ${statCard('Sortino','2.04')}
+        ${statCard('Max Drawdown','-5.4%',false,true)}
+        ${statCard('Trades','214')}
+      </div>
+      <div class="card p-3"><div class="text-[11px] text-[var(--text-muted)] uppercase mb-2">Equity Curve</div>${candles(11)}</div>
+      <div class="grid grid-cols-2 gap-3">
+        <div class="card p-3"><div class="text-[11px] text-[var(--text-muted)] uppercase mb-2">Monthly Return</div>${candles(13)}</div>
+        <div class="card p-3"><div class="text-[11px] text-[var(--text-muted)] uppercase mb-2">Trade Distribution</div>${candles(17)}</div>
+      </div>
+    </div>
+  </div>
+`;
+function field(label,val){
+  return `<div><label class="text-[11px] text-[var(--text-muted)]">${label}</label><input value="${val}" class="w-full card-2 rounded px-2.5 py-1.5 mono mt-1 outline-none"></div>`;
+}
+
+PAGES.system = () => `
+  <div class="grid grid-cols-4 gap-3">
+  ${MOCK.systemServices.map(s=>`<div class="card p-3">
+    <div class="flex justify-between items-center mb-2"><span class="font-medium text-[12.5px]">${s.name}</span>${badge(s.status)}</div>
+    <div class="mono text-[11.5px] text-[var(--text-secondary)] space-y-1">
+      <div class="flex justify-between"><span>Latency</span><span>${s.latency}</span></div>
+      <div class="flex justify-between"><span>Errors (1h)</span><span>${s.errors}</span></div>
+      <div class="flex justify-between"><span>Uptime</span><span>${s.uptime}</span></div>
+      ${s.reconnects!==undefined?`<div class="flex justify-between"><span>Reconnects</span><span>${s.reconnects}</span></div>`:''}
+    </div>
+  </div>`).join('')}
+  </div>
+`;
+
+PAGES.logs = () => `
+  <div class="flex items-center gap-2 mb-3 flex-wrap">
+    <input class="card-2 rounded px-3 py-1.5 outline-none w-52" placeholder="Search logs…">
+    <input type="date" class="card-2 rounded px-3 py-1.5 outline-none">
+    ${['INFO','WARNING','ERROR','CRITICAL'].map(l=>`<button class="chip on" onclick="this.classList.toggle('on')">${l}</button>`).join('')}
+    <select class="card-2 rounded px-2 py-1.5 outline-none"><option>All services</option><option>execution</option><option>risk</option><option>agent</option></select>
+    <select class="card-2 rounded px-2 py-1.5 outline-none"><option>All assets</option><option>ETHUSDT</option><option>SOLUSDT</option><option>DOGEUSDT</option></select>
+  </div>
+  <div class="card overflow-hidden">
+    <table class="term w-full">
+      <thead><tr><th>Time</th><th>Level</th><th>Service</th><th>Asset</th><th>Message</th></tr></thead>
+      <tbody>
+      ${MOCK.logs.map(l=>`<tr class="mono"><td>${l.ts}</td><td>${badge(l.level)}</td><td class="text-[var(--text-secondary)]">${l.service}</td><td>${l.asset}</td><td>${l.msg}</td></tr>`).join('')}
+      </tbody>
+    </table>
+  </div>
+`;
+
+PAGES.settings = () => `
+  <div class="grid grid-cols-3 gap-3">
+    <div class="card p-4">
+      <div class="font-semibold mb-3">Trading</div>
+      <div class="space-y-2.5">
+        ${field('Mode','Paper')}
+        ${field('Assets','ETH, SOL, DOGE')}
+        ${field('Max Leverage','10x')}
+        ${field('Max Positions','5')}
+        ${field('Risk Per Trade','2%')}
+        ${field('Daily Loss Limit','2%')}
+      </div>
+    </div>
+    <div class="card p-4">
+      <div class="font-semibold mb-3">Agent</div>
+      <div class="space-y-2.5">
+        ${field('Autonomy','Full Auto')}
+        ${field('Confidence Threshold','50%')}
+        ${field('Strategy Selection','Dynamic')}
+      </div>
+    </div>
+    <div class="card p-4">
+      <div class="font-semibold mb-3">Notifications</div>
+      <div class="space-y-2 text-[12.5px]">
+        ${['Trade Events','Risk Warnings','Errors'].map(n=>`<label class="flex items-center gap-2"><input type="checkbox" checked> ${n}</label>`).join('')}
+      </div>
+    </div>
+  </div>
+  <div class="mt-3"><button class="px-4 py-2 rounded text-[12.5px] font-semibold text-white" style="background:var(--accent)">Save Changes</button></div>
+`;
+
+/* ============================================================
+   AGENT CHAT — full-page ChatGPT/Claude-style interface
+   ============================================================ */
+const CHAT_HISTORY_ITEMS = [
+  'Why are you waiting on ETH?',
+  'Why did you choose SOL instead of ETH?',
+  'What is the current market regime?',
+  'What caused the recent losses?',
+];
+PAGES.chat = () => `
+  <div class="grid gap-3 h-full" style="grid-template-columns: 220px 1fr; height:calc(100vh - 104px);">
+    <div class="card p-2 flex flex-col">
+      <button class="w-full mb-2 py-2 rounded text-[12px] font-medium border hairline hover:bg-[var(--bg-surface-2)]" onclick="newChat()">+ New chat</button>
+      <div class="text-[10.5px] text-[var(--text-muted)] uppercase px-1 mb-1">Recent</div>
+      <div class="flex-1 overflow-y-auto space-y-1">
+        ${CHAT_HISTORY_ITEMS.map(q=>`<button class="w-full text-left px-2 py-1.5 rounded text-[11.5px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface-2)] hover:text-[var(--text-primary)] truncate" onclick="askAgent(${JSON.stringify(q)})">${q}</button>`).join('')}
+      </div>
+    </div>
+    <div class="card flex flex-col overflow-hidden">
+      <div class="h-11 border-b hairline flex items-center px-4 justify-between shrink-0">
+        <div class="flex items-center gap-2"><div class="avatar" style="background:var(--accent);color:#fff">A</div><span class="font-medium text-[12.5px]">Agent Assistant</span></div>
+        <span class="text-[10.5px] text-[var(--text-muted)]">Structured answers only · no hidden reasoning</span>
+      </div>
+      <div id="chat-page-log" class="chat-scroll flex-1 p-4 space-y-4"></div>
+      <div class="p-3 border-t hairline shrink-0">
+        <div class="flex flex-wrap gap-1.5 mb-2">
+          ${CHAT_HISTORY_ITEMS.map(q=>`<button class="chip" onclick="askAgent(${JSON.stringify(q)})">${q}</button>`).join('')}
+        </div>
+        <div class="flex items-center gap-2">
+          <input id="chat-page-input" class="flex-1 card-2 rounded-full px-4 py-2.5 outline-none" placeholder="Ask the agent about any market, decision, or trade…" onkeydown="if(event.key==='Enter'){askAgent(this.value); this.value='';}">
+          <button class="w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0" style="background:var(--accent)" onclick="const i=document.getElementById('chat-page-input'); askAgent(i.value); i.value='';">➤</button>
+        </div>
+      </div>
+    </div>
+  </div>
+`;
+
+/* ============================================================
+   APP SHELL LOGIC
+   ============================================================ */
+function renderSidebar(){
+  const nav = document.getElementById('sidebar-nav');
+  nav.innerHTML = NAV.map(sec => `
+    <div class="px-3 mt-3 mb-1 text-[10px] tracking-widest text-[var(--text-muted)] uppercase">${sec.section}</div>
+    ${sec.items.map(it=>`<button data-page="${it.id}" class="navlink w-full text-left px-3 py-1.5" onclick="navigate('${it.id}')">${it.label}</button>`).join('')}
+  `).join('');
+}
+function navigate(id){
+  document.querySelectorAll('.navlink').forEach(n=>n.classList.toggle('active', n.dataset.page===id));
+  document.getElementById('main').innerHTML = (PAGES[id] || (()=>`<div class="card p-6 text-[var(--text-secondary)]">Page not available.</div>`))();
+  if(id==='chat') renderAllChatViews();
+}
+function selectAsset(el){ el.parentElement.querySelectorAll('.chip').forEach(c=>{if(!c.textContent.match(/\\d/))c.classList.remove('on')}); el.classList.add('on'); }
+function selectTf(el){ const p=el.parentElement; ['1m','5m','15m','1h','4h','1d'].forEach(()=>{}); p.querySelectorAll('.chip').forEach(c=>c.classList.remove('on')); el.classList.add('on'); }
+
+/* Emergency stop */
+function openEstop(){ document.getElementById('estop-modal').classList.remove('hidden'); document.getElementById('estop-modal').classList.add('flex'); document.getElementById('estop-input').value=''; document.getElementById('estop-confirm').disabled=true; document.getElementById('estop-confirm').classList.add('opacity-40'); }
+function closeEstop(){ document.getElementById('estop-modal').classList.add('hidden'); document.getElementById('estop-modal').classList.remove('flex'); }
+document.getElementById('btn-estop').onclick = openEstop;
+document.getElementById('estop-input').addEventListener('input', e=>{
+  const ok = e.target.value.trim()==='STOP';
+  document.getElementById('estop-confirm').disabled=!ok;
+  document.getElementById('estop-confirm').classList.toggle('opacity-40', !ok);
+});
+document.getElementById('estop-confirm').onclick = ()=>{ closeEstop(); alert('// TODO: call POST /agent/emergency-stop\\nEmergency stop submitted.'); };
+document.getElementById('btn-pause').onclick = ()=>{ const b=document.getElementById('btn-pause'); const paused = b.textContent.includes('Resume'); b.textContent = paused? '⏸ Pause' : '▶ Resume'; };
+
+/* Trade journey modal ("how it worked") for any position/trade row */
+function showJourneyModal(title, sub, journeyObj){
+  document.getElementById('journey-modal-title').textContent = title;
+  document.getElementById('journey-modal-sub').textContent = sub;
+  document.getElementById('journey-modal-body').innerHTML = tradeJourney(journeyObj);
+  const m = document.getElementById('journey-modal');
+  m.classList.remove('hidden'); m.classList.add('flex');
+}
+function closeJourneyModal(){
+  const m = document.getElementById('journey-modal');
+  m.classList.add('hidden'); m.classList.remove('flex');
+}
+function showPositionJourney(i){
+  const p = MOCK.positions[i];
+  showJourneyModal(`How it worked — ${p.asset} (open position)`, `${p.strategy} · ${p.side} · unrealized P&L $${fmt(p.pnl)}`,
+    {asset:p.asset, strategy:p.strategy, conf:71, risk:'PASS', decision:(p.side==='Long'?'OPEN LONG':'OPEN SHORT'), result: (p.pnl>=0?'+':'')+'$'+fmt(p.pnl)+' (open)'});
+}
+function showHistoryJourney(idx){
+  const rows = [
+    {asset:'ETHUSDT', strategy:'Coherence Trend Following', conf:69, risk:'PASS', decision:'CLOSE LONG', result:'+$212.40'},
+    {asset:'DOGEUSDT', strategy:'Volatility Breakout', conf:44, risk:'WARN', decision:'CLOSE SHORT', result:'-$250.10'},
+    {asset:'SOLUSDT', strategy:'Signal Flip Momentum', conf:64, risk:'PASS', decision:'CLOSE LONG', result:'+$756.00'},
+  ];
+  const t = rows[idx];
+  showJourneyModal(`How it worked — ${t.asset} (closed trade)`, `${t.strategy} · result ${t.result}`, t);
+}
+
+/* ============================================================
+   LIVE AGENT INSPECTOR — "what is my agent doing right now"
+   for a specific live/open trade: news being read, live market
+   condition analysis, and a continuously updating action console.
+   ============================================================ */
+let liveInterval = null;
+const LIVE_STAGES = ['Ingest','News','Polymarket','Indicators','Regime','Signal','Risk','Decision'];
+function liveStageRow(activeIdx){
+  let html = '<div class="stepper-row">';
+  LIVE_STAGES.forEach((s,i)=>{
+    const state = i<activeIdx ? 'done' : (i===activeIdx ? 'active' : '');
+    html += `<div class="step-pill ${state==='active'?'active':''}" style="${state==='done'?'opacity:.55':''}">
+      <div class="step-num" style="${state==='done'?`background:var(--positive);border-color:var(--positive);color:#fff`:''}">${state==='done'?'✓':String(i+1).padStart(2,'0')}</div>
+      <div class="text-[11px]">${s}</div></div>`;
+    if(i<LIVE_STAGES.length-1) html += '<div class="step-connector"></div>';
+  });
+  html += '</div>';
+  return html;
+}
+function newsItemHtml(n){
+  const cls = n.sentiment==='pos'?'pos':(n.sentiment==='neg'?'neg':'neu');
+  const color = n.sentiment==='pos'?'var(--positive)':(n.sentiment==='neg'?'var(--negative)':'var(--text-muted)');
+  return `<div class="news-item ${cls}">
+    <div class="flex justify-between items-center mb-0.5">
+      <span class="text-[10.5px] text-[var(--text-muted)]">${n.source} · ${n.time}</span>
+      ${badge(n.sentiment==='pos'?'PASS':(n.sentiment==='neg'?'FAIL':'WARN'))}
+    </div>
+    <div class="text-[12px] leading-snug mb-1">${n.headline}</div>
+    <div class="analysis-bar-label"><span class="text-[var(--text-muted)]">Relevance</span><span class="mono">${Math.round(n.relevance*100)}%</span></div>
+    ${gauge(n.relevance*100, color)}
+  </div>`;
+}
+function analysisHtml(m){
+  const rows = [
+    ['Trend', m.trend==='Up'?72:28, m.trend==='Up'?'var(--positive)':'var(--negative)', m.trend],
+    ['Momentum', Math.round(Math.abs(m.momentum)*100), m.momentum>=0?'var(--positive)':'var(--negative)', m.momentum.toFixed(2)],
+    ['Volatility', Math.min(100,Math.round(m.vol*1000)), 'var(--warning)', (m.vol*100).toFixed(1)+'%'],
+    ['Volume', 61, 'var(--accent)', 'Above avg'],
+    ['Funding', Math.min(100,Math.round(Math.abs(m.funding)*8000)), m.funding>=0?'var(--positive)':'var(--negative)', (m.funding*100).toFixed(2)+'%'],
+    ['Open Interest', 54, 'var(--accent)', m.oi],
+  ];
+  return rows.map(([label,pct,color,val])=>`<div class="mb-2.5">
+    <div class="analysis-bar-label"><span>${label}</span><span class="mono text-[var(--text-secondary)]">${val}</span></div>
+    ${gauge(pct,color)}
+  </div>`).join('');
+}
+function openLiveInspector(assetSym, strategy){
+  const m = MOCK.markets.find(x=>x.sym===assetSym) || MOCK.markets[0];
+  const assetTag = assetSym.replace('USDT','');
+  const relatedPM = MOCK.polymarket.filter(p=>p.cat===assetTag || p.cat==='Macro').sort((a,b)=>b.relevance-a.relevance).slice(0,4);
+  document.getElementById('live-title').textContent = `Live Agent Activity — ${assetSym}`;
+  document.getElementById('live-sub').textContent = `${strategy || 'Active strategy'} · confidence ${m.conf}% · updating live`;
+  document.getElementById('live-stage-row').innerHTML = liveStageRow(5);
+  document.getElementById('live-news').innerHTML = (MOCK.newsFeed[assetSym]||[]).map(newsItemHtml).join('');
+  document.getElementById('live-polymarket').innerHTML = relatedPM.map(p=>pmCard(p,true)).join('') || `<div class="text-[11px] text-[var(--text-muted)]">No relevant Polymarket questions this cycle.</div>`;
+  document.getElementById('live-analysis').innerHTML = analysisHtml(m);
+
+  const consoleEl = document.getElementById('live-console');
+  consoleEl.innerHTML = '';
+  const news = MOCK.newsFeed[assetSym] || [];
+  let tick = 0;
+  function pushLine(){
+    let tmpl = MOCK.liveLogTemplates[tick % MOCK.liveLogTemplates.length];
+    let line;
+    if(tmpl.includes('Polymarket-slot')){
+      const pm = relatedPM[Math.floor(Math.random()*relatedPM.length)] || relatedPM[0];
+      line = pm ? `Reading Polymarket: "${pm.q.slice(0,54)}${pm.q.length>54?'…':''}" — YES ${Math.round(pm.yes*100)}%, relevance ${Math.round(pm.relevance*100)}%` : 'Checking Polymarket for relevant questions';
+    } else {
+      line = tmpl.replace('{asset}', assetSym).replace('{count}', news.length);
+    }
+    const now = new Date();
+    const ts = now.toTimeString().slice(0,8);
+    const div = document.createElement('div');
+    div.className = 'log-line flex gap-2';
+    div.innerHTML = `<span class="text-[var(--text-muted)] shrink-0">${ts}</span><span class="text-[var(--text-secondary)]">${line}</span>`;
+    consoleEl.appendChild(div);
+    consoleEl.scrollTop = consoleEl.scrollHeight;
+    while(consoleEl.children.length > 30) consoleEl.removeChild(consoleEl.firstChild);
+    tick++;
+  }
+  pushLine(); pushLine(); pushLine();
+  liveInterval = setInterval(pushLine, 1500);
+
+  const modal = document.getElementById('live-modal');
+  modal.classList.remove('hidden'); modal.classList.add('flex');
+}
+function closeLiveInspector(){
+  clearInterval(liveInterval); liveInterval = null;
+  const modal = document.getElementById('live-modal');
+  modal.classList.add('hidden'); modal.classList.remove('flex');
+}
+
+/* Generic confirm (positions/orders destructive actions) */
+function confirmAction(title, body){
+  if(confirm(title+'\\n\\n'+body+'\\n\\n// TODO: wire to real mutation endpoint')) alert('Action submitted.');
+}
+
+/* Command center — shared chat state between drawer + full Agent Chat page */
+let chatMessages = [];
+function toggleCmd(open){
+  const d = document.getElementById('cmd-drawer');
+  if(open===undefined) open = d.classList.contains('translate-x-full');
+  d.classList.toggle('translate-x-full', !open);
+  if(open) renderAllChatViews();
+}
+document.getElementById('btn-cmd').onclick = ()=>toggleCmd(true);
+
+function bubbleHtml(m){
+  if(m.role==='user'){
+    return `<div class="flex justify-end gap-2"><div class="bubble user">${m.text}</div></div>`;
+  }
+  return `<div class="flex justify-start gap-2"><div class="avatar" style="background:var(--accent);color:#fff">A</div><div class="bubble assistant">${m.text}</div></div>`;
+}
+function renderAllChatViews(){
+  const html = chatMessages.length
+    ? chatMessages.map(bubbleHtml).join('')
+    : `<div class="text-center text-[var(--text-secondary)] text-[12.5px] py-10">Ask about any market, decision, or trade — answers use only structured signals, never hidden reasoning.</div>`;
+  const drawer = document.getElementById('cmd-log');
+  if(drawer){ drawer.innerHTML = html; drawer.scrollTop = drawer.scrollHeight; }
+  const page = document.getElementById('chat-page-log');
+  if(page){ page.innerHTML = html; page.scrollTop = page.scrollHeight; }
+}
+function newChat(){ chatMessages = []; renderAllChatViews(); }
+function askAgent(q){
+  if(!q || !q.trim()) return;
+  chatMessages.push({role:'user', text:q});
+  renderAllChatViews();
+  const answers = {
+    'Why are you waiting on ETH?': 'Strategy router is scanning; entry conditions (trend + momentum) are forming but confirmation threshold (50%) not yet met. Current confidence: 61%.',
+    'Why did you choose SOL instead of ETH?': 'SOL crossed the Signal Flip Momentum threshold first (64% confidence) while ETH remained below the entry gate at decision time.',
+    'What is the current market regime?': 'Regime classifier reports Trend-Up (score 0.61) across tracked assets, based on the last 4h of price/volume structure.',
+    'What caused the recent losses?': 'Failure analysis attributes recent losses primarily to the Volatility-Triggered Breakout strategy during high-volatility DOGEUSDT sessions (18 flagged trades, avg -1.4R).',
+  };
+  const ans = answers[q] || 'No structured explanation endpoint response available for this query yet. // TODO: route to backend /agent/explain';
+  setTimeout(()=>{ chatMessages.push({role:'assistant', text:ans}); renderAllChatViews(); }, 400);
+  const ci = document.getElementById('cmd-input'); if(ci) ci.value='';
+  const pi = document.getElementById('chat-page-input'); if(pi) pi.value='';
+}
+
+/* Theme toggle — cycles Terminal → Aurora → Platinum → Terminal */
+const THEMES = [
+  {key:'', label:'Terminal', icon:'◐'},
+  {key:'aurora', label:'Aurora', icon:'◑'},
+  {key:'platinum', label:'Platinum', icon:'✦'},
+];
+let themeIdx = 0;
+function toggleTheme(){
+  themeIdx = (themeIdx + 1) % THEMES.length;
+  const t = THEMES[themeIdx];
+  document.body.setAttribute('data-theme', t.key);
+  document.getElementById('theme-icon').textContent = t.icon;
+  document.getElementById('theme-label').textContent = THEMES[(themeIdx+1)%THEMES.length].label;
+}
+
+/* boot */
+renderSidebar();
+navigate('home');
+</script>
+</body>
+</html>

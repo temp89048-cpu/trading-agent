@@ -122,6 +122,19 @@ export type Mission = {
   progress: MissionProgress;
   constraints: MissionConstraint[];
   checkpoints: MissionCheckpoint[];
+  /**
+   * Total equity OBSERVED when this mission was created, in USD.
+   *
+   * The anchor every "since the mission began" figure is measured from. It exists
+   * because progress used to be computed against `target.startEquityUsd` — a
+   * number the user typed — so a capital-target mission read 100% and flipped
+   * straight to 'completed' at creation.
+   *
+   * Optional: missions stored before this field existed do not carry it, and
+   * `evaluateMission` falls back to `ctx.startEquityUsd`. The fallback is
+   * deliberately NOT the declared start, which is what caused the bug.
+   */
+  baselineEquityUsd?: number;
 };
 
 // ---- Portfolio Context for Mission Evaluation -----------------------
@@ -235,11 +248,38 @@ export function evaluateMission(mission: Mission, ctx: MissionPortfolioContext):
     }
 
     case 'capital-target': {
-      const totalDelta = target.targetEquityUsd - target.startEquityUsd;
-      const achievedDelta = ctx.totalEquityUsd - target.startEquityUsd;
-      const progressPct = totalDelta !== 0
-        ? Math.min(100, Math.max(0, (achievedDelta / totalDelta) * 100))
-        : ctx.totalEquityUsd >= target.targetEquityUsd ? 100 : 0;
+      // PROGRESS IS MEASURED FROM THE BOOK, NOT FROM THE DECLARED START.
+      //
+      // This used to compute `ctx.totalEquityUsd - target.startEquityUsd`, i.e. it
+      // subtracted a number the USER TYPED from live equity. The declared start is
+      // a statement of intent; it is not an observation of the account, so the
+      // difference between them measures nothing. Declaring "$100 -> $1,000" while
+      // holding $25,000 produced 100% instantly, and `checkMissionExpiry` promotes
+      // a capital-target at >=100% straight to 'completed' — so the mission was
+      // finished the moment it was created. That is the reported bug.
+      //
+      // The numerator is now the gain made SINCE THE MISSION BEGAN, from equity
+      // captured at creation. That is 0 at creation by construction, whatever was
+      // declared, and gains made before the mission existed cannot be claimed by
+      // it. `ctx.startEquityUsd` is the fallback for missions stored before
+      // `baselineEquityUsd` existed — never `target.startEquityUsd`, which is what
+      // caused this.
+      const baseline = mission.baselineEquityUsd ?? ctx.startEquityUsd;
+      const declaredDistance = target.targetEquityUsd - target.startEquityUsd;
+      const achievedDelta = ctx.totalEquityUsd - baseline;
+
+      // A zero or negative declared distance has no journey to be a fraction of.
+      // Reporting 100% for "start == target" would be a confident answer to an
+      // unanswerable question.
+      const measurable = declaredDistance > 0;
+      const progressPct = measurable
+        ? Math.min(100, Math.max(0, (achievedDelta / declaredDistance) * 100))
+        : 0;
+
+      // Said out loud when the declared start does not match the book, because the
+      // target then means something different from what the operator thinks: the
+      // dollar journey they described is not the one their account is on.
+      const baselineMismatch = Math.abs(baseline - target.startEquityUsd) > 0.01;
       // No deadline to be "behind schedule" against by design (see the
       // type's own comment) — status instead reflects whether progress
       // already made is holding up or being given back, using
@@ -256,11 +296,32 @@ export function evaluateMission(mission: Mission, ctx: MissionPortfolioContext):
               : achievedDelta > 0
                 ? 'ahead'
                 : 'on-track';
+      const parts: string[] = [
+        `Equity $${ctx.totalEquityUsd.toFixed(2)}, ${achievedDelta >= 0 ? '+' : ''}$${achievedDelta.toFixed(2)} since this mission began`,
+      ];
+      if (measurable) {
+        parts.push(
+          `${progressPct.toFixed(1)}% of the declared $${target.startEquityUsd.toFixed(2)} → $${target.targetEquityUsd.toFixed(2)} journey (no fixed deadline)`,
+        );
+      } else {
+        parts.push(
+          `the declared $${target.startEquityUsd.toFixed(2)} → $${target.targetEquityUsd.toFixed(2)} journey covers no distance, so progress toward it is unmeasurable — the same figure for start and target leaves nothing to be a fraction of`,
+        );
+      }
+      if (baselineMismatch) {
+        parts.push(
+          `NOTE: the declared start ($${target.startEquityUsd.toFixed(2)}) is not what the book held when this mission began ($${baseline.toFixed(2)}), so the dollar journey described is not the one this account is on`,
+        );
+      }
+      if (drawdownFromPeakPct > 0.01) {
+        parts.push(`${drawdownFromPeakPct.toFixed(1)}% off peak equity`);
+      }
+
       return {
         currentPct: progressPct,
         status,
         lastEvaluatedAt: now,
-        detail: `Equity $${ctx.totalEquityUsd.toFixed(2)} toward the $${target.startEquityUsd.toFixed(2)} → $${target.targetEquityUsd.toFixed(2)} target (${progressPct.toFixed(1)}% there, no fixed deadline)${drawdownFromPeakPct > 0.01 ? ` — ${drawdownFromPeakPct.toFixed(1)}% off peak equity` : ''}.`,
+        detail: `${parts.join(' — ')}.`,
       };
     }
   }

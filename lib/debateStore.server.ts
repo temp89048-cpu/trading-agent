@@ -1,90 +1,191 @@
-import { promises as fs } from 'fs';
-import path from 'path';
+// ---------------------------------------------------------------------
+// Debate records. POSTGRES-FIRST, JSON file as fallback.
+//
+// `opinions`, `moderator` and `regime` are `jsonb`. `opinions` is an array of
+// per-agent positions and `moderator` is the full decision summary — both are
+// shapes owned by `lib/debate/types.ts`, and flattening them would mean a schema
+// change every time an agent gains a field.
+//
+// `trade_id` REFERENCES `trades(id) ON DELETE SET NULL`. So linking a debate to a
+// trade that does not exist fails, and `linkDebateToTrade` reports that rather
+// than appearing to succeed — a debate silently unlinked from the trade it
+// produced is how "Act on this" becomes untraceable.
+//
+// `risk_level` is CHECK-constrained to Low/Medium/High and `outcome` to win/loss.
+// The outcome is deliberately nullable: a debate whose trade has not closed yet
+// has no outcome, which is different from a debate that lost.
+// ---------------------------------------------------------------------
+
+import { one, rows } from './db.server';
+import { readJson, serialize, toMillis, toNumber, writeJson } from './jsonFallback.server';
 import type { DebateRecord } from './debate/types';
 
-// Same persistence pattern and caveat as every other .data/-backed store
-// in this app (tradeStore, memoryStore, reflectionStore): a JSON file on
-// local disk, genuinely persistent for local/self-hosted use, NOT
-// persistent on Vercel or other ephemeral serverless filesystems.
-//
-// A DebateRecord starts with outcome/tradeId both null (a prediction,
-// not yet a result). It only becomes useful for calibration/reputation
-// once linked to a trade that has since closed — see
-// components/Debate.tsx for the linkage, which watches tradeLog for a
-// close matching this record's tradeId and calls updateOutcome().
+const FILE = 'debate-records.json';
 
-const DATA_DIR = path.join(process.cwd(), '.data');
-const DATA_FILE = path.join(DATA_DIR, 'debate-records.json');
+const COLUMNS = `id, ts, symbol, opinions, moderator, regime, calibrated_confidence,
+                 risk_level, suggested_position_pct, trade_id, outcome, outcome_pnl_usd`;
 
-async function ensureFile(): Promise<void> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  try {
-    await fs.access(DATA_FILE);
-  } catch {
-    await fs.writeFile(DATA_FILE, '[]', 'utf8');
-  }
+type Row = {
+  id: string;
+  ts: Date | string;
+  symbol: string;
+  opinions: unknown;
+  moderator: unknown;
+  regime: unknown;
+  calibrated_confidence: string | number | null;
+  risk_level: string;
+  suggested_position_pct: string | number | null;
+  trade_id: string | null;
+  outcome: string | null;
+  outcome_pnl_usd: string | number | null;
+};
+
+function fromRow(r: Row): DebateRecord {
+  return {
+    id: r.id,
+    ts: toMillis(r.ts) ?? 0,
+    symbol: r.symbol,
+    opinions: (r.opinions ?? []) as DebateRecord['opinions'],
+    moderator: r.moderator as DebateRecord['moderator'],
+    regime: r.regime as DebateRecord['regime'],
+    // null, not 0. An uncalibrated confidence is not zero confidence — the
+    // Debate panel shows "not calibrated" for the first and a hard NO for a 0.
+    calibratedConfidence: toNumber(r.calibrated_confidence),
+    riskLevel: r.risk_level as DebateRecord['riskLevel'],
+    suggestedPositionPct: toNumber(r.suggested_position_pct),
+    tradeId: r.trade_id,
+    outcome: r.outcome as DebateRecord['outcome'],
+    outcomePnlUsd: toNumber(r.outcome_pnl_usd),
+  };
 }
 
-let queue: Promise<unknown> = Promise.resolve();
-function serialize<T>(fn: () => Promise<T>): Promise<T> {
-  const result = queue.then(fn, fn);
-  queue = result.catch(() => {});
-  return result;
-}
-
-async function readAll(): Promise<DebateRecord[]> {
-  await ensureFile();
-  const raw = await fs.readFile(DATA_FILE, 'utf8');
-  try {
-    return JSON.parse(raw) as DebateRecord[];
-  } catch {
-    return [];
-  }
-}
-
-async function writeAll(records: DebateRecord[]): Promise<void> {
-  await fs.writeFile(DATA_FILE, JSON.stringify(records, null, 2), 'utf8');
-}
-
-// Soft cap so this file doesn't grow forever on an active account —
-// keeps the most recent N records, which is also all calibration and
-// reputation need (recent behavior matters more than ancient history
-// for both).
-const MAX_RECORDS = 2000;
+const FK_VIOLATION = '23503';
 
 export async function listDebateRecords(symbol?: string): Promise<DebateRecord[]> {
-  const all = await readAll();
-  return symbol ? all.filter((r) => r.symbol === symbol) : all;
+  const found = await rows<Row>(
+    `SELECT ${COLUMNS} FROM debate_records
+      WHERE ($1::text IS NULL OR symbol = $1)
+      ORDER BY ts DESC`,
+    [symbol ?? null],
+  );
+  if (found) return found.map(fromRow);
+
+  const all = await readJson<DebateRecord[]>(FILE, []);
+  const filtered = symbol ? all.filter((d) => d.symbol === symbol) : all;
+  return [...filtered].sort((a, b) => b.ts - a.ts);
 }
 
 export async function saveDebateRecord(record: DebateRecord): Promise<DebateRecord> {
-  return serialize(async () => {
-    const all = await readAll();
-    all.push(record);
-    const trimmed = all.length > MAX_RECORDS ? all.slice(all.length - MAX_RECORDS) : all;
-    await writeAll(trimmed);
+  const SQL = `INSERT INTO debate_records (${COLUMNS})
+     VALUES ($1, to_timestamp($2 / 1000.0), $3, $4::jsonb, $5::jsonb, $6::jsonb,
+             $7, $8, $9, $10, $11, $12)
+     ON CONFLICT (id) DO UPDATE SET
+       opinions = EXCLUDED.opinions,
+       moderator = EXCLUDED.moderator,
+       regime = EXCLUDED.regime,
+       calibrated_confidence = EXCLUDED.calibrated_confidence,
+       risk_level = EXCLUDED.risk_level,
+       suggested_position_pct = EXCLUDED.suggested_position_pct,
+       trade_id = EXCLUDED.trade_id,
+       outcome = EXCLUDED.outcome,
+       outcome_pnl_usd = EXCLUDED.outcome_pnl_usd
+     RETURNING ${COLUMNS}`;
+
+  const params = (tradeId: string | null) => [
+    record.id,
+    record.ts,
+    record.symbol,
+    JSON.stringify(record.opinions ?? []),
+    JSON.stringify(record.moderator ?? {}),
+    record.regime === null || record.regime === undefined ? null : JSON.stringify(record.regime),
+    record.calibratedConfidence,
+    record.riskLevel,
+    record.suggestedPositionPct,
+    tradeId,
+    record.outcome,
+    record.outcomePnlUsd,
+  ];
+
+  try {
+    const saved = await one<Row>(SQL, params(record.tradeId ?? null));
+    if (saved) return fromRow(saved);
+  } catch (err) {
+    if ((err as { code?: string }).code === FK_VIOLATION && record.tradeId) {
+      // Keep the debate, drop the dangling link. The reasoning record is the
+      // valuable artefact; losing it because its trade link is stale would
+      // remove the only evidence of why a decision was made.
+      console.warn(
+        `[debates] trade_id ${record.tradeId} does not exist; storing the debate unlinked.`,
+      );
+      const saved = await one<Row>(SQL, params(null));
+      if (saved) return fromRow(saved);
+    } else {
+      throw err;
+    }
+  }
+
+  return serialize(FILE, async () => {
+    const all = await readJson<DebateRecord[]>(FILE, []);
+    const idx = all.findIndex((d) => d.id === record.id);
+    if (idx >= 0) all[idx] = record;
+    else all.push(record);
+    await writeJson(FILE, all);
     return record;
   });
 }
 
-export async function linkDebateToTrade(debateId: string, tradeId: string): Promise<DebateRecord | null> {
-  return serialize(async () => {
-    const all = await readAll();
-    const idx = all.findIndex((r) => r.id === debateId);
-    if (idx < 0) return null;
+export async function linkDebateToTrade(debateId: string, tradeId: string): Promise<boolean> {
+  try {
+    const updated = await rows<{ id: string }>(
+      'UPDATE debate_records SET trade_id = $2 WHERE id = $1 RETURNING id',
+      [debateId, tradeId],
+    );
+    if (updated !== null) return updated.length > 0;
+  } catch (err) {
+    if ((err as { code?: string }).code === FK_VIOLATION) {
+      // Reported, not swallowed: the caller asked for a link and did not get one.
+      console.error(
+        `[debates] cannot link debate ${debateId} to trade ${tradeId}: no such trade.`,
+      );
+      return false;
+    }
+    throw err;
+  }
+
+  return serialize(FILE, async () => {
+    const all = await readJson<DebateRecord[]>(FILE, []);
+    const idx = all.findIndex((d) => d.id === debateId);
+    if (idx < 0) return false;
     all[idx] = { ...all[idx], tradeId };
-    await writeAll(all);
-    return all[idx];
+    await writeJson(FILE, all);
+    return true;
   });
 }
 
-export async function updateDebateOutcomeByTradeId(tradeId: string, outcome: 'win' | 'loss', pnlUsd: number): Promise<DebateRecord | null> {
-  return serialize(async () => {
-    const all = await readAll();
-    const idx = all.findIndex((r) => r.tradeId === tradeId);
-    if (idx < 0) return null;
-    all[idx] = { ...all[idx], outcome, outcomePnlUsd: pnlUsd };
-    await writeAll(all);
-    return all[idx];
+export async function updateDebateOutcomeByTradeId(
+  tradeId: string,
+  outcome: 'win' | 'loss',
+  pnlUsd: number,
+): Promise<boolean> {
+  const updated = await rows<{ id: string }>(
+    `UPDATE debate_records
+        SET outcome = $2, outcome_pnl_usd = $3
+      WHERE trade_id = $1
+      RETURNING id`,
+    [tradeId, outcome, pnlUsd],
+  );
+  if (updated !== null) return updated.length > 0;
+
+  return serialize(FILE, async () => {
+    const all = await readJson<DebateRecord[]>(FILE, []);
+    let changed = false;
+    for (let i = 0; i < all.length; i += 1) {
+      if (all[i].tradeId === tradeId) {
+        all[i] = { ...all[i], outcome, outcomePnlUsd: pnlUsd };
+        changed = true;
+      }
+    }
+    if (changed) await writeJson(FILE, all);
+    return changed;
   });
 }

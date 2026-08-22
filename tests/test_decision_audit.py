@@ -47,10 +47,19 @@ def _check_constraint_values(column: str, table_hint: str) -> set[str]:
     """
     sql = SCHEMA.read_text(encoding="utf-8")
 
-    table_start = sql.index(f"CREATE TABLE {table_hint}")
-    table_end = sql.index("CREATE TABLE", table_start + 1) if sql.count(
-        "CREATE TABLE", table_start + 1
-    ) else len(sql)
+    # `CREATE TABLE IF NOT EXISTS x` and `CREATE TABLE x` must both parse. The
+    # schema is applied on every startup now, so every CREATE carries IF NOT
+    # EXISTS — a parser that only knew the bare spelling silently stopped finding
+    # its table, which is exactly the kind of "test passes because it matched
+    # nothing" failure this file exists to prevent elsewhere.
+    start_match = re.search(
+        rf"^CREATE TABLE (?:IF NOT EXISTS )?{table_hint}\b", sql, re.M
+    )
+    assert start_match, f"no CREATE TABLE for {table_hint} in schema.sql"
+    table_start = start_match.start()
+
+    next_match = re.search(r"^CREATE TABLE ", sql[table_start + 1 :], re.M)
+    table_end = (table_start + 1 + next_match.start()) if next_match else len(sql)
     body = sql[table_start:table_end]
 
     match = re.search(

@@ -1,10 +1,29 @@
 from typing import Dict, Any, List
 import copy
 
-# Global in-memory portfolio for backend agents
+# Starting paper cash. THE SAME FIGURE AS EVERYWHERE ELSE — 25,000.
+#
+# This was 1,000,000, making it the third disagreeing definition of one quantity:
+# `lib/types.ts` opened the browser's book with 1,000,000, `PAPER_STARTING_EQUITY`
+# said 25,000, and `db/schema.sql` seeds `paper_account` with 25,000 under a comment
+# that explicitly claims it "matches PAPER_STARTING_EQUITY". Two of the three were
+# wrong and the comment asserting agreement was the only thing that was right.
+#
+# 40x of phantom buying power changes what the agent can size into, so this is not
+# cosmetic.
+PAPER_STARTING_CASH = 25_000.0
+
+# Global IN-MEMORY portfolio for backend agents.
+#
+# KNOWN GAP, documented in CLAUDE.md: nothing persists this. A restart resets cash
+# to the figure above and forgets every open position, while Postgres has a
+# `positions` table built for exactly this that nothing writes to. For paper that
+# loses P&L continuity; for real money the position still exists at the exchange
+# with nobody enforcing its stop. `tests/test_post_trade_chain.py` pins the current
+# behaviour — invert those tests when this is fixed rather than deleting them.
 _portfolio = {
     "paper": {
-        "cash": 1000000.0,
+        "cash": PAPER_STARTING_CASH,
         "positions": []
     },
     "real": {

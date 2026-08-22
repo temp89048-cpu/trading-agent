@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.api import (
     market, exchange, ai, knowledge, memory, research, execution, monitoring,
     dashboard, admin, agents as agents_api, missions, graphs as graphs_api,
-    polymarket as polymarket_api,
+    polymarket as polymarket_api, catalog as catalog_api,
 )
 from backend.core.agent_os import get_agent_os
 from backend.agents.trading_agent import register_trading_agent
@@ -42,6 +42,7 @@ from backend.workers.trigger_worker import get_trigger_worker
 
 import asyncio
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -313,10 +314,48 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Trading Agent API", lifespan=lifespan)
 
-# Configure CORS to allow the Next.js frontend to talk to this API
+# ---------------------------------------------------------------------------
+# CORS for the Next.js frontend.
+#
+# THIS WAS `["http://localhost:3000"]` AND THAT SINGLE ENTRY IS NOT ENOUGH.
+#
+# `http://localhost:3000` and `http://127.0.0.1:3000` are DIFFERENT ORIGINS to a
+# browser. So an operator who opened the dashboard on 127.0.0.1 — which is what
+# this project's own docs recommend for the backend, and what the Next dev server
+# prints as an alternative — got a failed preflight on every call. Every page that
+# reads the backend then rendered "backend unreachable" while the backend was
+# running perfectly.
+#
+# That is the worst shape of bug for this app: the UI reports a data-source
+# failure, so the natural response is to debug the backend, which is fine.
+#
+# Found by serving a production build on port 3100 and watching an OPTIONS
+# preflight return 400 with no `access-control-allow-origin` header.
+#
+# `ALLOWED_ORIGINS` overrides the list entirely (comma-separated) for a real
+# deployment. The defaults cover both hostnames on the two ports Next actually
+# uses, and nothing wider — `allow_credentials=True` means `allow_origins=["*"]`
+# is rejected by the CORS spec anyway, so a wildcard here would silently break
+# every request rather than loosen anything.
+# ---------------------------------------------------------------------------
+_DEFAULT_ORIGINS = [
+    f"http://{host}:{port}"
+    for host in ("localhost", "127.0.0.1")
+    for port in (3000, 3001, 3100)
+]
+
+_configured = os.getenv("ALLOWED_ORIGINS", "").strip()
+_allowed_origins = (
+    [o.strip() for o in _configured.split(",") if o.strip()]
+    if _configured
+    else _DEFAULT_ORIGINS
+)
+
+logger.info("CORS allowed origins: %s", ", ".join(_allowed_origins))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -359,5 +398,10 @@ app.include_router(graphs_api.router, prefix="/api/graphs", tags=["LangGraph API
 # `set_by_human=True` — without it, `confirm_mapping`'s refusal would be
 # unreachable rather than enforced, and no mapping could ever be confirmed.
 app.include_router(polymarket_api.router, prefix="/api/polymarket", tags=["Polymarket API"])
+
+# The three read-only views the frontend brief listed as BLOCKED: orders,
+# strategies and replay. The data was already in the process with no route to it.
+# Nothing here decides anything and no endpoint accepts a write.
+app.include_router(catalog_api.router, prefix="/api/catalog", tags=["Catalog API"])
 
 # Original fallback health check removed, using dedicated router above

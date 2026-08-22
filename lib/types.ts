@@ -140,8 +140,26 @@ export type PortfolioState = {
   real: { positions: Position[] };
 };
 
+/**
+ * Starting cash for the paper book. THE ONE definition.
+ *
+ * It lives here, in the leaf module, because `lib/riskManager.ts` imports from
+ * this file and the reverse would be a cycle. `riskManager` re-exports it so its
+ * existing importers are unaffected.
+ *
+ * IT USED TO BE DEFINED TWICE AND THE TWO DISAGREED: `DEFAULT_PORTFOLIO` opened
+ * the book with 1,000,000 while `riskManager.PAPER_STARTING_EQUITY` said 25,000.
+ * Every daily-loss check, drawdown check and performance metric measured a fresh
+ * 1,000,000 book against a 25,000 anchor — 40x out. It also made a capital-target
+ * Mission report COMPLETED the moment it was created, because the form's own
+ * 25,000 -> 30,000 default was already 975,000 behind the live figure.
+ *
+ * Two constants for one quantity is the bug. Do not reintroduce the second.
+ */
+export const PAPER_STARTING_EQUITY = 25000;
+
 export const DEFAULT_PORTFOLIO: PortfolioState = {
-  paper: { cash: 1000000, positions: [] },
+  paper: { cash: PAPER_STARTING_EQUITY, positions: [] },
   real: { positions: [] },
 };
 

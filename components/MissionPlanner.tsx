@@ -142,7 +142,12 @@ export function MissionPlannerProvider({ children }: { children: React.ReactNode
       totalEquityUsd,
       positions,
       todayTradeCount,
-      startEquityUsd: totalEquityUsd,
+      // The type documents this as "equity at mission creation", and it was set to
+      // CURRENT equity — so it always equalled totalEquityUsd and every metric
+      // derived from the difference read exactly zero change, forever. It now
+      // reports the active mission's captured baseline, falling back to current
+      // equity only when there is no mission to have a baseline for.
+      startEquityUsd: active?.baselineEquityUsd ?? totalEquityUsd,
       peakEquityUsd,
       troughEquityUsd,
     };
@@ -220,6 +225,15 @@ export function MissionPlannerProvider({ children }: { children: React.ReactNode
       m.status === 'active' ? { ...m, status: 'paused' as const, updatedAt: Date.now() } : m,
     );
 
+    // The equity the book ACTUALLY held at this moment, captured once. Every
+    // "since the mission began" figure is measured from it.
+    //
+    // Without this, capital-target progress was `liveEquity - declaredStart` — a
+    // typed number subtracted from a real one — so a mission read 100% and flipped
+    // to 'completed' the instant it was created. Capturing the observation at
+    // creation makes progress 0 at creation by construction, whatever was declared.
+    const baselineEquityUsd = buildPortfolioContext().totalEquityUsd;
+
     const mission: Mission = {
       id: uid(),
       type: params.type,
@@ -227,6 +241,7 @@ export function MissionPlannerProvider({ children }: { children: React.ReactNode
       description: params.description,
       status: 'active',
       createdAt: Date.now(),
+      baselineEquityUsd,
       updatedAt: Date.now(),
       expiresAt: params.expiresAt ?? null,
       target: params.target,

@@ -180,7 +180,13 @@ export function checkPositionRisk(
 // simple running-equity curve anchored at the paper account's starting
 // cash. This intentionally does not include unrealized P&L on currently
 // open positions — a documented approximation, not a silent one.
-export const PAPER_STARTING_EQUITY = 25000;
+// RE-EXPORTED, not redeclared. The value lives in `lib/types.ts` because
+// `DEFAULT_PORTFOLIO` opens the paper book with it and this module already imports
+// from there — declaring it in both places is what let the two drift to 1,000,000
+// and 25,000, which put every drawdown and daily-loss check 40x out on a fresh
+// book. Existing importers of `PAPER_STARTING_EQUITY` from here keep working.
+export { PAPER_STARTING_EQUITY } from './types';
+import { PAPER_STARTING_EQUITY } from './types';
 
 // Exported so live performance analytics (Production Readiness Review
 // #12) can reuse the exact same realized-equity reconstruction that

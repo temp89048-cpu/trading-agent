@@ -1,22 +1,22 @@
-import { promises as fs } from 'fs';
-import path from 'path';
-
-// Same persistence pattern as every other *.server.ts store in this app:
-// a JSON file on local disk (./.data/autonomous-cycles.json). Genuinely
-// persistent for local/self-hosted use, NOT persistent on Vercel or
-// other ephemeral serverless filesystems.
+// ---------------------------------------------------------------------
+// Autonomous-cycle log. POSTGRES-FIRST, JSON file as fallback.
 //
-// Append-only with a rolling cap: this records EVERY autonomous cycle
-// including the ones that decided not to trade, which is the point — a
-// no-trade decision with stated reasons is itself a decision worth
-// journaling (spec Section 14's continuous-monitoring questions). But
-// that also means it grows on a fixed interval forever, so unlike the
-// other stores it trims to MAX_RECORDS rather than accumulating without
-// bound.
+// `considered` is jsonb: the full ranked slate a cycle looked at, best-first, so a
+// later reader can see not just what was chosen but what it was chosen OVER. That
+// is the whole value of the record and it is an array of objects — a table of its
+// own would need a join for every read of a log that is only ever read whole.
+//
+// `mission_id` REFERENCES `missions(id) ON DELETE SET NULL`. A cycle whose mission
+// has been deleted keeps its record and loses the link, which is right: the cycle
+// happened whether or not the mission still exists. A dangling id at write time is
+// reported and dropped rather than failing the append — losing the log entry would
+// remove the only account of what the autonomous loop did.
+//
+// APPEND-ONLY. There is no update path, because a cycle is a historical fact.
+// ---------------------------------------------------------------------
 
-const DATA_DIR = path.join(process.cwd(), '.data');
-const DATA_FILE = path.join(DATA_DIR, 'autonomous-cycles.json');
-const MAX_RECORDS = 500;
+import { one, rows } from './db.server';
+import { readJson, serialize, toMillis, toNumber, writeJson } from './jsonFallback.server';
 
 export type AutonomousCycleOutcome = 'traded' | 'no-trade' | 'error';
 
@@ -48,47 +48,100 @@ export type AutonomousCycleRecord = {
   missionProgressPct: number | null;
 };
 
-async function ensureFile(): Promise<void> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  try {
-    await fs.access(DATA_FILE);
-  } catch {
-    await fs.writeFile(DATA_FILE, '[]', 'utf8');
-  }
+const FILE = 'autonomous-cycles.json';
+
+const COLUMNS = `id, ts, outcome, considered, acted_symbol, acted_side,
+                 acted_margin_usd, acted_leverage, agent_task_id,
+                 decision_summary, mission_id, mission_progress_pct`;
+
+type Row = {
+  id: string;
+  ts: Date | string;
+  outcome: string;
+  considered: unknown;
+  acted_symbol: string | null;
+  acted_side: string | null;
+  acted_margin_usd: string | number | null;
+  acted_leverage: string | number | null;
+  agent_task_id: string | null;
+  decision_summary: string;
+  mission_id: string | null;
+  mission_progress_pct: string | number | null;
+};
+
+function fromRow(r: Row): AutonomousCycleRecord {
+  return {
+    id: r.id,
+    ts: toMillis(r.ts) ?? 0,
+    outcome: r.outcome as AutonomousCycleOutcome,
+    considered: (r.considered ?? []) as AutonomousCycleRecord['considered'],
+    actedSymbol: r.acted_symbol,
+    actedSide: r.acted_side as AutonomousCycleRecord['actedSide'],
+    // null, not 0: a no-trade cycle did not stake zero dollars at zero leverage,
+    // it staked nothing at all, and averaging a 0 in would understate real sizing.
+    actedMarginUsd: toNumber(r.acted_margin_usd),
+    actedLeverage: toNumber(r.acted_leverage),
+    agentTaskId: r.agent_task_id,
+    decisionSummary: r.decision_summary,
+    missionId: r.mission_id,
+    missionProgressPct: toNumber(r.mission_progress_pct),
+  };
 }
 
-let queue: Promise<unknown> = Promise.resolve();
-function serialize<T>(fn: () => Promise<T>): Promise<T> {
-  const result = queue.then(fn, fn);
-  queue = result.catch(() => {});
-  return result;
-}
-
-async function readAll(): Promise<AutonomousCycleRecord[]> {
-  await ensureFile();
-  const raw = await fs.readFile(DATA_FILE, 'utf8');
-  try {
-    return JSON.parse(raw) as AutonomousCycleRecord[];
-  } catch {
-    return [];
-  }
-}
-
-async function writeAll(records: AutonomousCycleRecord[]): Promise<void> {
-  await fs.writeFile(DATA_FILE, JSON.stringify(records, null, 2), 'utf8');
-}
+const FK_VIOLATION = '23503';
 
 export async function listAutonomousCycles(): Promise<AutonomousCycleRecord[]> {
-  return readAll();
+  const found = await rows<Row>(`SELECT ${COLUMNS} FROM autonomous_cycles ORDER BY ts DESC`);
+  if (found) return found.map(fromRow);
+  return readJson<AutonomousCycleRecord[]>(FILE, []);
 }
 
-export async function appendAutonomousCycle(record: AutonomousCycleRecord): Promise<AutonomousCycleRecord> {
-  return serialize(async () => {
-    const all = await readAll();
+export async function appendAutonomousCycle(
+  record: AutonomousCycleRecord,
+): Promise<AutonomousCycleRecord> {
+  const SQL = `INSERT INTO autonomous_cycles (${COLUMNS})
+     VALUES ($1, to_timestamp($2 / 1000.0), $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12)
+     ON CONFLICT (id) DO NOTHING
+     RETURNING ${COLUMNS}`;
+
+  const params = (missionId: string | null) => [
+    record.id,
+    record.ts,
+    record.outcome,
+    JSON.stringify(record.considered ?? []),
+    record.actedSymbol,
+    record.actedSide,
+    record.actedMarginUsd,
+    record.actedLeverage,
+    record.agentTaskId,
+    record.decisionSummary,
+    missionId,
+    record.missionProgressPct,
+  ];
+
+  try {
+    const saved = await one<Row>(SQL, params(record.missionId ?? null));
+    // `undefined` here means ON CONFLICT DO NOTHING fired: the id already exists,
+    // so the append is a no-op and the caller's record is the truth.
+    if (saved) return fromRow(saved);
+    if (saved === undefined) return record;
+  } catch (err) {
+    if ((err as { code?: string }).code === FK_VIOLATION && record.missionId) {
+      console.warn(
+        `[cycles] mission_id ${record.missionId} does not exist; storing the cycle unlinked.`,
+      );
+      const saved = await one<Row>(SQL, params(null));
+      if (saved) return fromRow(saved);
+      if (saved === undefined) return record;
+    } else {
+      throw err;
+    }
+  }
+
+  return serialize(FILE, async () => {
+    const all = await readJson<AutonomousCycleRecord[]>(FILE, []);
     all.push(record);
-    // Trim oldest-first, keeping the most recent MAX_RECORDS.
-    const trimmed = all.length > MAX_RECORDS ? all.slice(all.length - MAX_RECORDS) : all;
-    await writeAll(trimmed);
+    await writeJson(FILE, all);
     return record;
   });
 }

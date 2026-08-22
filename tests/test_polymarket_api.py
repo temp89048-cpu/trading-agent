@@ -411,10 +411,26 @@ def test_a_component_actually_fetches_the_declared_paths():
 
 def test_the_panel_is_actually_rendered():
     """A component that exists but is never mounted shows nothing. The last hop is
-    only complete when something renders it."""
-    sidebar = pathlib.Path("components/TradingSidebar.tsx").read_text(encoding="utf-8")
-    assert "import { PolymarketPanel }" in sidebar
-    assert "<PolymarketPanel />" in sidebar
+    only complete when something renders it.
+
+    THE MOUNT POINT MOVED. This used to assert against `components/TradingSidebar.tsx`,
+    which was the old single-page terminal's rail. That file is deleted; the panel is
+    now mounted by `components/operator/PolymarketOperator.tsx`, which the `/polymarket`
+    route renders. The assertion follows the mount rather than being deleted with the
+    file, because "is it mounted anywhere" is the thing worth checking — and this test
+    failing when the sidebar went away is exactly it doing its job.
+    """
+    wrapper = pathlib.Path("components/operator/PolymarketOperator.tsx").read_text(
+        encoding="utf-8"
+    )
+    assert "import { PolymarketPanel }" in wrapper
+    assert "<PolymarketPanel />" in wrapper
+
+    # ...and the wrapper must itself be reached by a route, or it is just a second
+    # unmounted component.
+    page = pathlib.Path("app/(terminal)/polymarket/page.tsx").read_text(encoding="utf-8")
+    assert "PolymarketOperator" in page
+    assert "<PolymarketOperator />" in page
 
 
 def test_the_panel_distinguishes_the_states_that_matter():

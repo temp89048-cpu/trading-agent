@@ -1,273 +1,7 @@
 {
     "monitoring_cycles": [
         {
-            "ts": "2026-08-20T17:21:42.077219",
-            "tab": "paper",
-            "positions": [],
-            "observations": [
-                "No open positions.",
-                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
-            ],
-            "concerns": [],
-            "unanswered": [
-                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
-                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
-                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
-                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
-                "Should I ask the user? \u2014 no backend notification channel exists."
-            ],
-            "actionsTaken": [],
-            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
-        },
-        {
-            "ts": "2026-08-20T17:21:43.107182",
-            "tab": "paper",
-            "positions": [],
-            "observations": [
-                "No open positions.",
-                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
-            ],
-            "concerns": [],
-            "unanswered": [
-                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
-                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
-                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
-                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
-                "Should I ask the user? \u2014 no backend notification channel exists."
-            ],
-            "actionsTaken": [],
-            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
-        },
-        {
-            "ts": "2026-08-20T17:21:44.190128",
-            "tab": "paper",
-            "positions": [],
-            "observations": [
-                "No open positions.",
-                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
-            ],
-            "concerns": [],
-            "unanswered": [
-                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
-                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
-                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
-                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
-                "Should I ask the user? \u2014 no backend notification channel exists."
-            ],
-            "actionsTaken": [],
-            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
-        },
-        {
-            "ts": "2026-08-20T17:21:45.272381",
-            "tab": "paper",
-            "positions": [],
-            "observations": [
-                "No open positions.",
-                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
-            ],
-            "concerns": [],
-            "unanswered": [
-                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
-                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
-                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
-                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
-                "Should I ask the user? \u2014 no backend notification channel exists."
-            ],
-            "actionsTaken": [],
-            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
-        },
-        {
-            "ts": "2026-08-20T17:21:46.444062",
-            "tab": "paper",
-            "positions": [],
-            "observations": [
-                "No open positions.",
-                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
-            ],
-            "concerns": [],
-            "unanswered": [
-                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
-                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
-                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
-                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
-                "Should I ask the user? \u2014 no backend notification channel exists."
-            ],
-            "actionsTaken": [],
-            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
-        },
-        {
-            "ts": "2026-08-20T17:21:47.515835",
-            "tab": "paper",
-            "positions": [],
-            "observations": [
-                "No open positions.",
-                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
-            ],
-            "concerns": [],
-            "unanswered": [
-                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
-                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
-                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
-                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
-                "Should I ask the user? \u2014 no backend notification channel exists."
-            ],
-            "actionsTaken": [],
-            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
-        },
-        {
-            "ts": "2026-08-20T17:21:48.586077",
-            "tab": "paper",
-            "positions": [],
-            "observations": [
-                "No open positions.",
-                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
-            ],
-            "concerns": [],
-            "unanswered": [
-                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
-                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
-                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
-                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
-                "Should I ask the user? \u2014 no backend notification channel exists."
-            ],
-            "actionsTaken": [],
-            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
-        },
-        {
-            "ts": "2026-08-20T17:21:49.730036",
-            "tab": "paper",
-            "positions": [],
-            "observations": [
-                "No open positions.",
-                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
-            ],
-            "concerns": [],
-            "unanswered": [
-                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
-                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
-                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
-                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
-                "Should I ask the user? \u2014 no backend notification channel exists."
-            ],
-            "actionsTaken": [],
-            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
-        },
-        {
-            "ts": "2026-08-20T17:21:50.737428",
-            "tab": "paper",
-            "positions": [],
-            "observations": [
-                "No open positions.",
-                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
-            ],
-            "concerns": [],
-            "unanswered": [
-                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
-                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
-                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
-                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
-                "Should I ask the user? \u2014 no backend notification channel exists."
-            ],
-            "actionsTaken": [],
-            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
-        },
-        {
-            "ts": "2026-08-20T17:21:51.742183",
-            "tab": "paper",
-            "positions": [],
-            "observations": [
-                "No open positions.",
-                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
-            ],
-            "concerns": [],
-            "unanswered": [
-                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
-                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
-                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
-                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
-                "Should I ask the user? \u2014 no backend notification channel exists."
-            ],
-            "actionsTaken": [],
-            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
-        },
-        {
-            "ts": "2026-08-20T17:21:52.909969",
-            "tab": "paper",
-            "positions": [],
-            "observations": [
-                "No open positions.",
-                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
-            ],
-            "concerns": [],
-            "unanswered": [
-                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
-                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
-                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
-                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
-                "Should I ask the user? \u2014 no backend notification channel exists."
-            ],
-            "actionsTaken": [],
-            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
-        },
-        {
-            "ts": "2026-08-20T17:21:53.993732",
-            "tab": "paper",
-            "positions": [],
-            "observations": [
-                "No open positions.",
-                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
-            ],
-            "concerns": [],
-            "unanswered": [
-                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
-                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
-                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
-                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
-                "Should I ask the user? \u2014 no backend notification channel exists."
-            ],
-            "actionsTaken": [],
-            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
-        },
-        {
-            "ts": "2026-08-20T17:21:55.002398",
-            "tab": "paper",
-            "positions": [],
-            "observations": [
-                "No open positions.",
-                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
-            ],
-            "concerns": [],
-            "unanswered": [
-                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
-                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
-                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
-                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
-                "Should I ask the user? \u2014 no backend notification channel exists."
-            ],
-            "actionsTaken": [],
-            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
-        },
-        {
-            "ts": "2026-08-20T17:21:56.203533",
-            "tab": "paper",
-            "positions": [],
-            "observations": [
-                "No open positions.",
-                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
-            ],
-            "concerns": [],
-            "unanswered": [
-                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
-                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
-                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
-                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
-                "Should I ask the user? \u2014 no backend notification channel exists."
-            ],
-            "actionsTaken": [],
-            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
-        },
-        {
-            "ts": "2026-08-20T17:21:59.423263",
+            "ts": "2026-08-22T11:04:41.511179",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -285,7 +19,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:22:09.410152",
+            "ts": "2026-08-22T11:05:16.772653",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -304,7 +38,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:22:41.279269",
+            "ts": "2026-08-22T11:06:16.787417",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -323,7 +57,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:22:42.680560",
+            "ts": "2026-08-22T11:07:16.826530",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -342,7 +76,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:22:43.682839",
+            "ts": "2026-08-22T11:08:16.861032",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -361,7 +95,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:22:44.870120",
+            "ts": "2026-08-22T11:09:16.907621",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -380,7 +114,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:22:45.807784",
+            "ts": "2026-08-22T11:10:16.949205",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -399,7 +133,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:22:46.724134",
+            "ts": "2026-08-22T11:11:16.971742",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -418,7 +152,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:22:47.651293",
+            "ts": "2026-08-22T11:12:17.029795",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -437,7 +171,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:22:48.623950",
+            "ts": "2026-08-22T11:13:17.080023",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -456,7 +190,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:22:49.607639",
+            "ts": "2026-08-22T11:14:17.115340",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -475,7 +209,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:22:50.734933",
+            "ts": "2026-08-22T11:15:17.140243",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -494,7 +228,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:22:51.744087",
+            "ts": "2026-08-22T11:16:17.193267",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -513,7 +247,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:22:52.730639",
+            "ts": "2026-08-22T11:17:17.240701",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -532,7 +266,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:22:53.726349",
+            "ts": "2026-08-22T11:18:17.280870",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -551,7 +285,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:22:54.801781",
+            "ts": "2026-08-22T11:19:17.323659",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -570,7 +304,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:22:55.851057",
+            "ts": "2026-08-22T11:20:17.379596",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -589,7 +323,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:22:56.852314",
+            "ts": "2026-08-22T11:21:17.406281",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -608,7 +342,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:22:57.921627",
+            "ts": "2026-08-22T11:22:04.683911",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -627,7 +361,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:22:58.893261",
+            "ts": "2026-08-22T11:22:06.217304",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -646,7 +380,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:23:00.066099",
+            "ts": "2026-08-22T11:22:07.364196",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -665,7 +399,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:23:01.084378",
+            "ts": "2026-08-22T11:22:08.453544",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -684,7 +418,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:23:02.232185",
+            "ts": "2026-08-22T11:22:09.537353",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -703,7 +437,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:23:03.210932",
+            "ts": "2026-08-22T11:22:10.652816",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -722,7 +456,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:23:04.211660",
+            "ts": "2026-08-22T11:22:11.767554",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -741,7 +475,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:23:05.397497",
+            "ts": "2026-08-22T11:22:12.937959",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -760,7 +494,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:23:06.495767",
+            "ts": "2026-08-22T11:22:13.955761",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -779,7 +513,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:23:07.516452",
+            "ts": "2026-08-22T11:22:14.997248",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -798,7 +532,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:23:08.536745",
+            "ts": "2026-08-22T11:22:16.035909",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -817,7 +551,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:23:09.431214",
+            "ts": "2026-08-22T11:22:17.112378",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -836,7 +570,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:23:09.566150",
+            "ts": "2026-08-22T11:22:17.459011",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -855,7 +589,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:23:10.638790",
+            "ts": "2026-08-22T11:22:18.145198",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -874,7 +608,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:23:11.592750",
+            "ts": "2026-08-22T11:22:19.136189",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -893,7 +627,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:23:12.732975",
+            "ts": "2026-08-22T11:22:20.189391",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -912,7 +646,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:23:13.712852",
+            "ts": "2026-08-22T11:22:21.245995",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -931,7 +665,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:23:14.805011",
+            "ts": "2026-08-22T11:22:22.276234",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -950,7 +684,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:23:15.842570",
+            "ts": "2026-08-22T11:22:23.365813",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -969,7 +703,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:23:16.828783",
+            "ts": "2026-08-22T11:22:24.368269",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -988,7 +722,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:23:17.915093",
+            "ts": "2026-08-22T11:22:25.402635",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -1007,7 +741,311 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:23:21.013975",
+            "ts": "2026-08-22T11:22:26.594860",
+            "tab": "paper",
+            "positions": [],
+            "observations": [
+                "No open positions.",
+                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
+            ],
+            "concerns": [],
+            "unanswered": [
+                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
+                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
+                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
+                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
+                "Should I ask the user? \u2014 no backend notification channel exists."
+            ],
+            "actionsTaken": [],
+            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
+        },
+        {
+            "ts": "2026-08-22T11:22:27.625645",
+            "tab": "paper",
+            "positions": [],
+            "observations": [
+                "No open positions.",
+                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
+            ],
+            "concerns": [],
+            "unanswered": [
+                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
+                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
+                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
+                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
+                "Should I ask the user? \u2014 no backend notification channel exists."
+            ],
+            "actionsTaken": [],
+            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
+        },
+        {
+            "ts": "2026-08-22T11:22:28.628341",
+            "tab": "paper",
+            "positions": [],
+            "observations": [
+                "No open positions.",
+                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
+            ],
+            "concerns": [],
+            "unanswered": [
+                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
+                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
+                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
+                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
+                "Should I ask the user? \u2014 no backend notification channel exists."
+            ],
+            "actionsTaken": [],
+            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
+        },
+        {
+            "ts": "2026-08-22T11:22:29.709492",
+            "tab": "paper",
+            "positions": [],
+            "observations": [
+                "No open positions.",
+                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
+            ],
+            "concerns": [],
+            "unanswered": [
+                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
+                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
+                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
+                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
+                "Should I ask the user? \u2014 no backend notification channel exists."
+            ],
+            "actionsTaken": [],
+            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
+        },
+        {
+            "ts": "2026-08-22T11:22:30.771488",
+            "tab": "paper",
+            "positions": [],
+            "observations": [
+                "No open positions.",
+                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
+            ],
+            "concerns": [],
+            "unanswered": [
+                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
+                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
+                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
+                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
+                "Should I ask the user? \u2014 no backend notification channel exists."
+            ],
+            "actionsTaken": [],
+            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
+        },
+        {
+            "ts": "2026-08-22T11:22:31.789834",
+            "tab": "paper",
+            "positions": [],
+            "observations": [
+                "No open positions.",
+                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
+            ],
+            "concerns": [],
+            "unanswered": [
+                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
+                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
+                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
+                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
+                "Should I ask the user? \u2014 no backend notification channel exists."
+            ],
+            "actionsTaken": [],
+            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
+        },
+        {
+            "ts": "2026-08-22T11:22:32.780250",
+            "tab": "paper",
+            "positions": [],
+            "observations": [
+                "No open positions.",
+                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
+            ],
+            "concerns": [],
+            "unanswered": [
+                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
+                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
+                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
+                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
+                "Should I ask the user? \u2014 no backend notification channel exists."
+            ],
+            "actionsTaken": [],
+            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
+        },
+        {
+            "ts": "2026-08-22T11:22:33.882569",
+            "tab": "paper",
+            "positions": [],
+            "observations": [
+                "No open positions.",
+                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
+            ],
+            "concerns": [],
+            "unanswered": [
+                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
+                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
+                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
+                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
+                "Should I ask the user? \u2014 no backend notification channel exists."
+            ],
+            "actionsTaken": [],
+            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
+        },
+        {
+            "ts": "2026-08-22T11:22:34.970815",
+            "tab": "paper",
+            "positions": [],
+            "observations": [
+                "No open positions.",
+                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
+            ],
+            "concerns": [],
+            "unanswered": [
+                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
+                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
+                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
+                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
+                "Should I ask the user? \u2014 no backend notification channel exists."
+            ],
+            "actionsTaken": [],
+            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
+        },
+        {
+            "ts": "2026-08-22T11:22:36.121356",
+            "tab": "paper",
+            "positions": [],
+            "observations": [
+                "No open positions.",
+                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
+            ],
+            "concerns": [],
+            "unanswered": [
+                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
+                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
+                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
+                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
+                "Should I ask the user? \u2014 no backend notification channel exists."
+            ],
+            "actionsTaken": [],
+            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
+        },
+        {
+            "ts": "2026-08-22T11:22:37.110243",
+            "tab": "paper",
+            "positions": [],
+            "observations": [
+                "No open positions.",
+                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
+            ],
+            "concerns": [],
+            "unanswered": [
+                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
+                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
+                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
+                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
+                "Should I ask the user? \u2014 no backend notification channel exists."
+            ],
+            "actionsTaken": [],
+            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
+        },
+        {
+            "ts": "2026-08-22T11:22:38.147953",
+            "tab": "paper",
+            "positions": [],
+            "observations": [
+                "No open positions.",
+                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
+            ],
+            "concerns": [],
+            "unanswered": [
+                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
+                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
+                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
+                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
+                "Should I ask the user? \u2014 no backend notification channel exists."
+            ],
+            "actionsTaken": [],
+            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
+        },
+        {
+            "ts": "2026-08-22T11:22:39.454078",
+            "tab": "paper",
+            "positions": [],
+            "observations": [
+                "No open positions.",
+                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
+            ],
+            "concerns": [],
+            "unanswered": [
+                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
+                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
+                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
+                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
+                "Should I ask the user? \u2014 no backend notification channel exists."
+            ],
+            "actionsTaken": [],
+            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
+        },
+        {
+            "ts": "2026-08-22T11:22:40.505121",
+            "tab": "paper",
+            "positions": [],
+            "observations": [
+                "No open positions.",
+                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
+            ],
+            "concerns": [],
+            "unanswered": [
+                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
+                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
+                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
+                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
+                "Should I ask the user? \u2014 no backend notification channel exists."
+            ],
+            "actionsTaken": [],
+            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
+        },
+        {
+            "ts": "2026-08-22T11:22:41.524953",
+            "tab": "paper",
+            "positions": [],
+            "observations": [
+                "No open positions.",
+                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
+            ],
+            "concerns": [],
+            "unanswered": [
+                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
+                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
+                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
+                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
+                "Should I ask the user? \u2014 no backend notification channel exists."
+            ],
+            "actionsTaken": [],
+            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
+        },
+        {
+            "ts": "2026-08-22T11:22:42.667815",
+            "tab": "paper",
+            "positions": [],
+            "observations": [
+                "No open positions.",
+                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
+            ],
+            "concerns": [],
+            "unanswered": [
+                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
+                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
+                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
+                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
+                "Should I ask the user? \u2014 no backend notification channel exists."
+            ],
+            "actionsTaken": [],
+            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
+        },
+        {
+            "ts": "2026-08-22T11:22:45.277215",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -1025,7 +1063,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:24:01.069315",
+            "ts": "2026-08-22T11:23:17.486545",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -1044,7 +1082,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:25:01.088341",
+            "ts": "2026-08-22T11:24:17.497643",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -1063,7 +1101,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:26:01.117798",
+            "ts": "2026-08-22T11:25:17.540732",
             "tab": "paper",
             "positions": [],
             "observations": [
@@ -1082,45 +1120,7 @@
             "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
         },
         {
-            "ts": "2026-08-20T17:27:01.130839",
-            "tab": "paper",
-            "positions": [],
-            "observations": [
-                "No open positions.",
-                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
-            ],
-            "concerns": [],
-            "unanswered": [
-                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
-                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
-                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
-                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
-                "Should I ask the user? \u2014 no backend notification channel exists."
-            ],
-            "actionsTaken": [],
-            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
-        },
-        {
-            "ts": "2026-08-20T17:28:01.180285",
-            "tab": "paper",
-            "positions": [],
-            "observations": [
-                "No open positions.",
-                "6 hypothesis/hypotheses awaiting human review (nothing applied automatically)."
-            ],
-            "concerns": [],
-            "unanswered": [
-                "What am I missing? \u2014 requires semantic reflection not currently in the monitor loop.",
-                "Is my prediction still valid? \u2014 requires comparing TradeThesis against live price action.",
-                "Should I reduce leverage? / Should I hedge? \u2014 position scaling and hedging logic resides in the portfolio agent.",
-                "Should I ask another AI? \u2014 second-opinion collaboration is implemented on the TypeScript side only (lib/collaborationAgent.ts); no backend path exists.",
-                "Should I ask the user? \u2014 no backend notification channel exists."
-            ],
-            "actionsTaken": [],
-            "note": "Reporting only. This loop does not open, close, or resize positions \u2014 exits are handled by the Position Monitor on every tick, not once a minute."
-        },
-        {
-            "ts": "2026-08-20T17:29:01.438312",
+            "ts": "2026-08-22T11:26:17.581065",
             "tab": "paper",
             "positions": [],
             "observations": [

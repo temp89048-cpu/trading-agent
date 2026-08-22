@@ -60,8 +60,42 @@ implemented as modules. Do not rebuild them as separate services — the
 spec's own Master Prompt says "Do NOT rebuild existing systems. Reuse
 existing modules."
 
-`db/schema.sql` is a **future Postgres migration target**, not wired up.
-Nothing reads it today.
+### Two data stores, both real — do not "consolidate" them
+
+This used to say `db/schema.sql` was a future migration target that nothing
+read. **That is no longer true**, and believing it leads directly to
+reading the wrong book:
+
+- **Postgres** is live and authoritative for the **backend agent**.
+  `backend/core/db.py:init_db()` runs at startup and applies
+  `db/schema.sql` (26 tables). The agent's fills, decisions, reflections
+  and risk events all land there — thousands of rows. `asyncpg`,
+  `DATABASE_URL` in `.env`, and LangGraph's `AsyncPostgresSaver`
+  checkpointer.
+- **JSON under `.data/`** is authoritative for the **browser**: manual
+  paper trades, watchlist, client config, via `lib/*.server.ts` and the
+  Next `/api/*` routes.
+
+These are two different actors, not a duplication. `/api/catalog/orders`
+returns a `source` field naming which one answered, because a page that
+shows one book under a heading implying the other is the failure this
+split has already caused once.
+
+**`schema.sql` must stay idempotent** (`CREATE ... IF NOT EXISTS`, seed
+`INSERT ... ON CONFLICT DO NOTHING`). `init_db` applies it on *every*
+startup. It used to apply it only when the `trades` table was absent,
+which meant `execution_quality` — added to the schema later — was never
+created, and every write to it failed after the order had already
+reached the exchange.
+
+**Open gap: positions are not persisted.**
+`backend/services/portfolio_store.py` is a module-level dict, and
+`PositionMonitorAgent`'s book is in-memory too. A restart forgets every
+open position. Postgres has a `positions` table built for this and
+nothing writes to it. For paper this loses P&L continuity; for **real
+money** the position still exists at the exchange with nobody enforcing
+its stop. `tests/test_post_trade_chain.py` pins the current behaviour —
+invert those two tests when it is fixed, don't delete them.
 
 ### Provider tree matters
 
@@ -170,9 +204,26 @@ npm run build                       # catches route/provider issues tsc won't
 `npx next lint` will try to run a first-time ESLint setup wizard (no
 config exists) — it is not part of the verification loop.
 
-**Note:** this environment has no network route to `api.binance.com`,
-Yahoo, or exchange APIs. Live data paths cannot be verified here; say so
-plainly rather than claiming they work.
+```bash
+.venv/Scripts/python.exe -m pytest -q   # backend; must all pass
+```
+
+**Network: `api.binance.com` IS reachable from this machine.** This note
+previously said it was not, and that assumption hid a real bug for
+months: `market_data.fetch_prices()` was filtering ccxt's futures ticker
+keys with `symbol.endswith("/USDT")` — but futures keys are
+`BTC/USDT:USDT`, so it matched nothing, the price cache stayed empty, and
+the code logged *"Failed to fetch prices via CCXT after maximum
+retries"*. Everyone read that as the documented network limitation. It
+was a string-matching bug, and `fetch_tickers` had been succeeding all
+along.
+
+So: public Binance endpoints (tickers, klines) work and are worth
+verifying against. **Private** calls still fail while `USE_TESTNET=true`,
+because Binance dropped futures testnet support in ccxt — that one is
+real, and `fetch_balance` reports it once rather than on every poll.
+Polymarket reachability is untested. Verify before claiming either way
+rather than inheriting a note.
 
 ---
 

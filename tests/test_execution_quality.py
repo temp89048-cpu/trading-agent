@@ -31,6 +31,25 @@ from backend.core import system_state
 from backend.core.message_bus import MessageBus, get_message_bus
 from backend.models.events import TarApprovedEvent, TickReceivedEvent
 
+# `db/schema.sql` is applied on EVERY startup, so every CREATE carries
+# `IF NOT EXISTS`. These helpers accept both spellings: a parser that only knew
+# the bare form stopped finding its table and the assertions below started
+# passing against an empty slice.
+_CREATE_TABLE = r"^CREATE TABLE (?:IF NOT EXISTS )?"
+
+
+def _table_block(sql: str, name: str) -> str:
+    """The DDL for one table, from its CREATE to the next one."""
+    import re as _re
+
+    match = _re.search(_CREATE_TABLE + name + r"\b", sql, _re.M)
+    assert match, f"no CREATE TABLE for {name} in schema.sql"
+    rest = sql[match.start() + 1 :]
+    nxt = _re.search(_CREATE_TABLE, rest, _re.M)
+    return sql[match.start() : match.start() + 1 + nxt.start()] if nxt else sql[match.start() :]
+
+
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SYMBOL = "BTC/USDT"
 PRICE = 60_000.0
@@ -300,7 +319,9 @@ def test_execution_quality_table_exists_in_the_schema():
     """Section 22.4 requires the score be written back to the schema. There was
     no such table."""
     sql = (ROOT / "db" / "schema.sql").read_text(encoding="utf-8")
-    assert "CREATE TABLE execution_quality" in sql
+    assert re.search(_CREATE_TABLE + r"execution_quality\b", sql, re.M), (
+        "execution_quality is not declared in schema.sql"
+    )
 
 
 def test_score_column_allows_null_for_unmeasurable():
@@ -308,7 +329,7 @@ def test_score_column_allows_null_for_unmeasurable():
     counted as zero — otherwise execution quality looks worse the more often the
     price feed drops out."""
     sql = (ROOT / "db" / "schema.sql").read_text(encoding="utf-8")
-    block = sql[sql.index("CREATE TABLE execution_quality"):]
+    block = _table_block(sql, "execution_quality")
     block = block[: block.index(");")]
     score_line = next(l for l in block.splitlines() if l.strip().startswith("score"))
     assert "NOT NULL" not in score_line
@@ -317,7 +338,7 @@ def test_score_column_allows_null_for_unmeasurable():
 
 def test_execution_quality_distinguishes_requested_from_filled():
     sql = (ROOT / "db" / "schema.sql").read_text(encoding="utf-8")
-    block = sql[sql.index("CREATE TABLE execution_quality"):]
+    block = _table_block(sql, "execution_quality")
     block = block[: block.index(");")]
     assert "requested_qty" in block
     assert "filled_qty" in block
@@ -328,13 +349,13 @@ def test_execution_quality_is_keyed_on_order_id():
     """One exchange order gets exactly one score; an idempotent retry must not
     produce a second row."""
     sql = (ROOT / "db" / "schema.sql").read_text(encoding="utf-8")
-    block = sql[sql.index("CREATE TABLE execution_quality"):]
+    block = _table_block(sql, "execution_quality")
     assert "order_id            text PRIMARY KEY" in block
 
 
 def test_schema_has_no_duplicate_tables():
     sql = (ROOT / "db" / "schema.sql").read_text(encoding="utf-8")
-    tables = re.findall(r"^CREATE TABLE (\w+)", sql, re.M)
+    tables = re.findall(_CREATE_TABLE + r"(\w+)", sql, re.M)
     assert len(tables) == len(set(tables)), "duplicate CREATE TABLE in schema.sql"
 
 

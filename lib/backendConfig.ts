@@ -98,6 +98,25 @@ export const BACKEND_PATHS = {
   polymarketConfirm: '/api/polymarket/mappings/confirm',
   polymarketSnapshots: '/api/polymarket/snapshots',
   polymarketSeries: '/api/polymarket/series',
+
+  // --- Catalog: the three read-only views added to unblock BLOCKED routes ----
+  //
+  // Each exposes data that was already in the Python process with no route to it.
+  // All read-only; see backend/api/catalog.py for what each honestly is NOT.
+  catalog: '/api/catalog',
+  catalogOrders: '/api/catalog/orders',
+  catalogStrategies: '/api/catalog/strategies',
+  catalogReplay: '/api/catalog/replay',
+
+  // --- Everything else the new routes read -----------------------------------
+  portfolio: '/api/dashboard/portfolio',
+  exchangeStatus: '/api/exchange/status',
+  marketPrices: '/api/market/prices',
+  memoryStats: '/api/memory/stats',
+  memoryReport: '/api/memory/report',
+  memoryMistakes: '/api/memory/mistakes',
+  researchDashboard: '/api/research/dashboard',
+  executionAudit: '/api/execution/audit',
 } as const;
 
 /**

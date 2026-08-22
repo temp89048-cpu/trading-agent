@@ -51,22 +51,59 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     return portfolioRef.current;
   }
 
-  // Portfolio (current holdings/cash) stays a simple client-local value —
-  // there's no need for another application to reach in and change your
-  // open positions directly. The trade LOG (append-only history of what
-  // happened) is the thing you asked to reach from another application,
-  // so that's server-backed via /api/trades — see lib/tradeStore.server.ts.
+  // THE PORTFOLIO IS NOW SERVER-BACKED, with localStorage kept as the fallback.
+  //
+  // It used to be client-local on the reasoning that "there's no need for another
+  // application to reach in and change your open positions directly". True, but it
+  // also meant clearing site data or opening the app on another machine lost the
+  // entire book — and the equity every risk check measures against with it.
+  //
+  // localStorage is written FIRST and synchronously on every change, which keeps
+  // `getPortfolioSnapshot()` able to see a trade made earlier in the same
+  // synchronous batch. The server write is fire-and-forget on top of that; making
+  // the mutators await it would break that guarantee.
   useEffect(() => {
-    const loaded = loadLS<PortfolioState>(LS_KEYS.portfolio, DEFAULT_PORTFOLIO);
-    portfolioRef.current = loaded;
-    setPortfolio(loaded);
+    // Read the local copy immediately so the first render has a book, then let the
+    // server correct it if it has one.
+    const local = loadLS<PortfolioState>(LS_KEYS.portfolio, DEFAULT_PORTFOLIO);
+    portfolioRef.current = local;
+    setPortfolio(local);
     setHydrated(true);
     refreshTradeLog();
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/portfolio');
+        const json = (await res.json()) as { portfolio: PortfolioState | null; source?: string };
+        // `null` means NO DATABASE, not an empty book. Overwriting the local copy
+        // with an empty one here would wipe a portfolio because a database was
+        // absent — a data loss that looks like a successful read.
+        if (cancelled || !json.portfolio) return;
+        portfolioRef.current = json.portfolio;
+        setPortfolio(json.portfolio);
+        saveLS(LS_KEYS.portfolio, json.portfolio);
+      } catch {
+        // Offline or no route — the local copy already loaded above stands.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (hydrated) saveLS(LS_KEYS.portfolio, portfolio);
+    if (!hydrated) return;
+    saveLS(LS_KEYS.portfolio, portfolio);
+    // Mirror to the server. A failure is logged rather than surfaced: the local
+    // copy is already correct, so a dropped sync degrades durability, not
+    // correctness, and blocking a trade on it would be worse.
+    fetch('/api/portfolio', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ portfolio }),
+    }).catch(() => {});
   }, [portfolio, hydrated]);
 
   async function refreshTradeLog() {
