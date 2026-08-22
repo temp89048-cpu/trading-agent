@@ -1,38 +1,38 @@
 {
-    "last_updated": "2026-08-22T11:25:51.550446",
+    "last_updated": "2026-08-22T11:26:56.023215",
     "trending_coins": [
         {
             "symbol": "USDCUSDT",
             "change_24h": "-0.01%",
-            "volume": "$3,637,261,816",
+            "volume": "$3,635,503,452",
             "mtf_trend": "Mixed",
             "discovered_setup": "None"
         },
         {
             "symbol": "BTCUSDT",
-            "change_24h": "-0.71%",
-            "volume": "$2,396,073,445",
+            "change_24h": "-0.72%",
+            "volume": "$2,395,169,207",
             "mtf_trend": "Mixed",
             "discovered_setup": "None"
         },
         {
             "symbol": "ETHUSDT",
-            "change_24h": "1.26%",
-            "volume": "$1,817,573,136",
+            "change_24h": "1.21%",
+            "volume": "$1,817,619,500",
             "mtf_trend": "Mixed",
             "discovered_setup": "None"
         },
         {
             "symbol": "XRPUSDT",
-            "change_24h": "7.09%",
-            "volume": "$996,741,002",
+            "change_24h": "7.11%",
+            "volume": "$996,714,784",
             "mtf_trend": "Mixed",
             "discovered_setup": "None"
         },
         {
             "symbol": "SOLUSDT",
             "change_24h": "2.15%",
-            "volume": "$756,633,455",
+            "volume": "$756,619,990",
             "mtf_trend": "Mixed",
             "discovered_setup": "None"
         }
